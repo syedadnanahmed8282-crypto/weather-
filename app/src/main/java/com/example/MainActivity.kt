@@ -9898,6 +9898,14 @@ fun calculateCelestialState(sunriseStr: String, sunsetStr: String): CelestialSta
     }
 }
 
+fun calculateMoonPhase(): Double {
+    val synodicMonth = 29.53058770576
+    val refNewMoon = 1704974400000L // Jan 11, 2024
+    val diffMs = System.currentTimeMillis() - refNewMoon
+    val diffDays = diffMs / (1000.0 * 60.0 * 60.0 * 24.0)
+    return ((diffDays % synodicMonth) + synodicMonth) % synodicMonth / synodicMonth
+}
+
 fun formatShortLocation(loc: String): String {
     if (loc.isBlank()) return "Ctg"
     var clean = loc.toEnglishDigits()
@@ -9938,14 +9946,14 @@ fun WeatherMetricItem(value: String, label: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = value,
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White
         )
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(modifier = Modifier.height(1.dp))
         Text(
             text = label,
-            fontSize = 10.5.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Normal,
             color = Color.White.copy(alpha = 0.8f)
         )
@@ -9967,6 +9975,7 @@ fun ImageStyleWeatherDashboard(
     forecastDays: List<String>,
     forecastTemps: List<String>,
     forecastCodes: List<Int>,
+    currentTemp: String = "",
     isFetching: Boolean,
     onRefresh: () -> Unit,
     onCardClick: () -> Unit
@@ -9975,8 +9984,10 @@ fun ImageStyleWeatherDashboard(
         calculateCelestialState(sunriseTime, sunsetTime)
     }
 
+    val moonPhase = remember { calculateMoonPhase() }
+
     val englishDateTime = remember {
-        val sdf = java.text.SimpleDateFormat("HH:mm • EEE, d MMM", java.util.Locale.US)
+        val sdf = java.text.SimpleDateFormat("hh:mm a • EEE, d MMM", java.util.Locale.US)
         sdf.format(java.util.Date())
     }
 
@@ -9995,31 +10006,42 @@ fun ImageStyleWeatherDashboard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(10.dp)
         ) {
-            // Header Row: Time/Date Left, Location/Refresh Right
+            // Header Row: Time/Date Left with Temp Below, Location/Refresh Right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left: Time & Date in English
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AccessTime,
-                        contentDescription = "Time",
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = englishDateTime,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.95f)
-                    )
+                // Left: Time, Date & Temperature in English
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = "Time",
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = englishDateTime,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White.copy(alpha = 0.95f)
+                        )
+                    }
+                    if (currentTemp.isNotBlank()) {
+                        Text(
+                            text = "Temp: ${currentTemp.toCleanEnglishWeatherMetric()}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.padding(start = 18.dp, top = 2.dp)
+                        )
+                    }
                 }
 
                 // Right: Short Location & Refresh
@@ -10038,7 +10060,7 @@ fun ImageStyleWeatherDashboard(
                             imageVector = Icons.Default.LocationOn,
                             contentDescription = "Location",
                             tint = Color(0xFFF87171),
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                         Text(
                             text = shortLoc,
@@ -10048,20 +10070,20 @@ fun ImageStyleWeatherDashboard(
                         )
                         IconButton(
                             onClick = onRefresh,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         ) {
                             if (isFetching) {
                                 CircularProgressIndicator(
                                     color = Color.White,
-                                    modifier = Modifier.size(14.dp),
-                                    strokeWidth = 1.8.dp
+                                    modifier = Modifier.size(13.dp),
+                                    strokeWidth = 1.6.dp
                                 )
                             } else {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
                                     contentDescription = "Refresh",
                                     tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
                             }
                         }
@@ -10069,24 +10091,24 @@ fun ImageStyleWeatherDashboard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Arc Curve Section (Taller & Larger Arc with Weather Metrics Framed Inside)
+            // Arc Curve Section (Wider Arc with Weather Metrics Framed Inside)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(135.dp)
+                    .height(125.dp)
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
 
-                    val startX = w * 0.08f
+                    val startX = w * 0.03f
                     val startY = h * 0.85f
-                    val endX = w * 0.92f
+                    val endX = w * 0.97f
                     val endY = h * 0.85f
                     val controlX = w * 0.5f
-                    val controlY = h * -0.22f // Arches up high, creating a large frame
+                    val controlY = h * -0.20f // Wide parabola spanning across full screen
 
                     val arcPath = androidx.compose.ui.graphics.Path().apply {
                         moveTo(startX, startY)
@@ -10098,7 +10120,7 @@ fun ImageStyleWeatherDashboard(
                         path = arcPath,
                         color = Color.White.copy(alpha = 0.35f),
                         style = androidx.compose.ui.graphics.drawscope.Stroke(
-                            width = 2.5.dp.toPx(),
+                            width = 2.2.dp.toPx(),
                             pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 10f), 0f)
                         )
                     )
@@ -10116,7 +10138,7 @@ fun ImageStyleWeatherDashboard(
                     drawPath(
                         path = solidPath.asComposePath(),
                         color = activePathColor.copy(alpha = 0.95f),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx())
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.2.dp.toPx())
                     )
 
                     // Celestial Position on Arc
@@ -10128,22 +10150,54 @@ fun ImageStyleWeatherDashboard(
                     val cy = if (pos[1] != 0f) pos[1] else startY
 
                     if (celestialState.isNight) {
-                        // Draw Glowing Moon
-                        drawCircle(
-                            color = Color(0xFF93C5FD).copy(alpha = 0.35f),
-                            radius = 14.dp.toPx(),
-                            center = androidx.compose.ui.geometry.Offset(cx, cy)
-                        )
-                        drawCircle(
-                            color = Color(0xFFE2E8F0),
-                            radius = 8.5.dp.toPx(),
-                            center = androidx.compose.ui.geometry.Offset(cx, cy)
-                        )
-                        drawCircle(
-                            color = Color(0xFF1E293B).copy(alpha = 0.85f),
-                            radius = 7.5.dp.toPx(),
-                            center = androidx.compose.ui.geometry.Offset(cx + 4.dp.toPx(), cy - 3.dp.toPx())
-                        )
+                        // Dynamic Realistic Moon Phase rendering
+                        if (moonPhase < 0.06 || moonPhase > 0.94) {
+                            // NEW MOON: Dark Moon disk with subtle ring contour
+                            drawCircle(
+                                color = Color(0xFF0F172A),
+                                radius = 8.5.dp.toPx(),
+                                center = androidx.compose.ui.geometry.Offset(cx, cy)
+                            )
+                            drawCircle(
+                                color = Color(0xFF64748B).copy(alpha = 0.8f),
+                                radius = 8.5.dp.toPx(),
+                                center = androidx.compose.ui.geometry.Offset(cx, cy),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.2.dp.toPx())
+                            )
+                        } else if (moonPhase in 0.44..0.56) {
+                            // FULL MOON: Full Glowing Moon
+                            drawCircle(
+                                color = Color(0xFF93C5FD).copy(alpha = 0.45f),
+                                radius = 15.dp.toPx(),
+                                center = androidx.compose.ui.geometry.Offset(cx, cy)
+                            )
+                            drawCircle(
+                                color = Color(0xFFFFFBEB),
+                                radius = 8.5.dp.toPx(),
+                                center = androidx.compose.ui.geometry.Offset(cx, cy)
+                            )
+                        } else {
+                            // CRESCENT / HALF / GIBBOUS MOON PHASE
+                            drawCircle(
+                                color = Color(0xFF93C5FD).copy(alpha = 0.30f),
+                                radius = 13.dp.toPx(),
+                                center = androidx.compose.ui.geometry.Offset(cx, cy)
+                            )
+                            // Bright base moon
+                            drawCircle(
+                                color = Color(0xFFE2E8F0),
+                                radius = 8.5.dp.toPx(),
+                                center = androidx.compose.ui.geometry.Offset(cx, cy)
+                            )
+                            // Dark shadow overlay to form real phase
+                            val shadowOffsetX = if (moonPhase < 0.5) (cx - 4.dp.toPx()) else (cx + 4.dp.toPx())
+                            val shadowRad = if (moonPhase in 0.20..0.30 || moonPhase in 0.70..0.80) 8.5.dp.toPx() else 7.0.dp.toPx()
+                            drawCircle(
+                                color = Color(0xFF0F172A).copy(alpha = 0.92f),
+                                radius = shadowRad,
+                                center = androidx.compose.ui.geometry.Offset(shadowOffsetX, cy - 1.dp.toPx())
+                            )
+                        }
                     } else {
                         // Draw Glowing Sun
                         drawCircle(
@@ -10189,12 +10243,12 @@ fun ImageStyleWeatherDashboard(
                         imageVector = Icons.Default.WbSunny,
                         contentDescription = "Sunrise",
                         tint = Color.White.copy(alpha = 0.9f),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(1.dp))
                     Text(
                         text = sunriseTime.toEnglishDigits(),
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
@@ -10211,12 +10265,12 @@ fun ImageStyleWeatherDashboard(
                         imageVector = Icons.Default.WbTwilight,
                         contentDescription = "Sunset",
                         tint = Color.White.copy(alpha = 0.9f),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(1.dp))
                     Text(
                         text = sunsetTime.toEnglishDigits(),
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
@@ -10226,8 +10280,8 @@ fun ImageStyleWeatherDashboard(
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .fillMaxWidth(0.70f)
-                        .padding(bottom = 4.dp),
+                        .fillMaxWidth(0.72f)
+                        .padding(bottom = 2.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -10238,11 +10292,11 @@ fun ImageStyleWeatherDashboard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-            Divider(color = Color.White.copy(alpha = 0.2f), thickness = 1.dp)
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            Divider(color = Color.White.copy(alpha = 0.2f), thickness = 0.8.dp)
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Bottom Hourly Forecast Row
+            // Bottom Hourly Forecast Row (Sleek & Compact)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -10265,11 +10319,11 @@ fun ImageStyleWeatherDashboard(
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
                             text = hTime,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White.copy(alpha = 0.9f)
                         )
@@ -10277,11 +10331,11 @@ fun ImageStyleWeatherDashboard(
                             imageVector = hIcon,
                             contentDescription = hTime,
                             tint = hTint,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = hTemp,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
@@ -10289,18 +10343,18 @@ fun ImageStyleWeatherDashboard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Divider(color = Color.White.copy(alpha = 0.15f), thickness = 0.8.dp)
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // 7-Day Forecast Section
+            // 7-Day Forecast Section (Sleek & Compact)
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "7-Day Forecast",
-                    fontSize = 11.sp,
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    modifier = Modifier.padding(bottom = 4.dp)
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -10316,11 +10370,11 @@ fun ImageStyleWeatherDashboard(
 
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
                                 text = dayLabel,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontWeight = if (i == 0) FontWeight.Bold else FontWeight.Medium,
                                 color = if (i == 0) Color.White else Color.White.copy(alpha = 0.85f)
                             )
@@ -10328,11 +10382,11 @@ fun ImageStyleWeatherDashboard(
                                 imageVector = fIcon,
                                 contentDescription = dayLabel,
                                 tint = fTint,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                             Text(
                                 text = fTemp,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
@@ -10593,8 +10647,8 @@ fun DashboardHomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // 1. TOP HEADER SECTION WITH GREETING (Unchanged)
             Row(
@@ -10674,6 +10728,7 @@ fun DashboardHomeScreen(
                 forecastDays = forecastDaysEng,
                 forecastTemps = liveForecastTempsVal,
                 forecastCodes = liveForecastCodesVal,
+                currentTemp = liveTemperatureVal,
                 isFetching = isFetchingWeatherVal,
                 onRefresh = {
                     val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(
@@ -10707,12 +10762,12 @@ fun DashboardHomeScreen(
                 }
             )
 
-            // 3. ORIGINAL REAL-TIME SUMMARY CARD WITH 3D BORDER (Shifted downward smoothly)
+            // 3. ORIGINAL REAL-TIME SUMMARY CARD WITH 3D BORDER (Semi-transparent background)
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xCC0F172A)),
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.2.dp, Color(0xFF3B82F6).copy(alpha = 0.3f))
+                border = BorderStroke(1.2.dp, Color(0xFF3B82F6).copy(alpha = 0.35f))
             ) {
                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                     Text(
@@ -12240,9 +12295,9 @@ fun DashboardCard(
         modifier = modifier
             .heightIn(min = if (subtext.isEmpty()) 52.dp else 96.dp)
             .clickable { onClick() },
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xCC0F172A)),
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
     ) {
         if (subtext.isEmpty()) {
             Row(
