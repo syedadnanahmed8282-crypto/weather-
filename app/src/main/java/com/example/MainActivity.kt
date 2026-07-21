@@ -114,6 +114,21 @@ fun String.toBanglaDigits(): String {
     return result
 }
 
+fun String.toEnglishDigits(): String {
+    val banglaDigits = listOf('০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯')
+    val englishDigits = listOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
+    var result = ""
+    for (char in this) {
+        val index = banglaDigits.indexOf(char)
+        if (index != -1) {
+            result += englishDigits[index]
+        } else {
+            result += char
+        }
+    }
+    return result
+}
+
 fun Number.toBangla(): String {
     val strVal = this.toString()
     // Strip decimal part if it's .0 as requested by user
@@ -233,6 +248,22 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
     )
     val isFetchingWeather = MutableStateFlow(false)
     val liveIsDay = MutableStateFlow(prefs.getInt("LIVE_IS_DAY", 1))
+
+    val liveRealFeel = MutableStateFlow(prefs.getString("LIVE_REAL_FEEL", "৩৫°সে.") ?: "৩৫°সে.")
+    val liveHumidity = MutableStateFlow(prefs.getString("LIVE_HUMIDITY", "৮৯%") ?: "৮৯%")
+    val liveWindSpeed = MutableStateFlow(prefs.getString("LIVE_WIND_SPEED", "৪") ?: "৪")
+    val livePressure = MutableStateFlow(prefs.getString("LIVE_PRESSURE", "১০০৬ hPa") ?: "১০০৬ hPa")
+    val liveSunrise = MutableStateFlow(prefs.getString("LIVE_SUNRISE", "০৫:২২") ?: "০৫:২২")
+    val liveSunset = MutableStateFlow(prefs.getString("LIVE_SUNSET", "১৮:৪১") ?: "১৮:৪১")
+    val liveHourlyTimes = MutableStateFlow(
+        prefs.getString("LIVE_HOURLY_TIMES", "১৬:০০,১৭:০০,১৮:০০,১৮:৪১,১৯:০০,২০:০০")?.split(",") ?: listOf("১৬:০০", "১৭:০০", "১৮:০০", "১৮:৪১", "১৯:০০", "২০:০০")
+    )
+    val liveHourlyTemps = MutableStateFlow(
+        prefs.getString("LIVE_HOURLY_TEMPS", "২৯°সে.,২৯°সে.,২৮°সে.,সূর্যাস্ত,২৭°সে.,২৭°সে.")?.split(",") ?: listOf("২৯°সে.", "২৯°সে.", "২৮°সে.", "সূর্যাস্ত", "২৭°সে.", "২৭°সে.")
+    )
+    val liveHourlyCodes = MutableStateFlow(
+        prefs.getString("LIVE_HOURLY_CODES", "1,61,2,-1,2,95")?.split(",")?.map { it.toIntOrNull() ?: 0 } ?: listOf(1, 61, 2, -1, 2, 95)
+    )
 
     private val cityTranslation = mapOf(
         "dhaka" to "ঢাকা",
@@ -676,8 +707,8 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                 }
                 liveLocationName.value = cityName
 
-                // Fetch weather from Open-Meteo using current parameters
-                val url = "https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto"
+                // Fetch weather from Open-Meteo with current, hourly, and daily metrics
+                val url = "https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,surface_pressure,wind_speed_10m,is_day&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto"
                 val client = OkHttpClient()
                 val request = Request.Builder().url(url).build()
                 client.newCall(request).execute().use { response ->
@@ -687,13 +718,22 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                             val json = JSONObject(body)
                             if (json.has("current")) {
                                 val current = json.getJSONObject("current")
-                                val temp = current.getDouble("temperature_2m")
-                                val code = current.getInt("weather_code")
+                                val temp = current.optDouble("temperature_2m", 30.0)
+                                val code = current.optInt("weather_code", 0)
                                 val isDay = current.optInt("is_day", 1)
+                                val apparentTemp = current.optDouble("apparent_temperature", temp)
+                                val humidity = current.optInt("relative_humidity_2m", 89)
+                                val windSpeed = current.optDouble("wind_speed_10m", 4.0)
+                                val pressure = current.optDouble("surface_pressure", 1006.0)
+
                                 val tempString = "${temp.toInt().toBangla()}°সে."
                                 liveTemperature.value = tempString
                                 liveWeatherCode.value = code
                                 liveIsDay.value = isDay
+                                liveRealFeel.value = "${apparentTemp.toInt().toBangla()}°সে."
+                                liveHumidity.value = "${humidity.toBangla()}%"
+                                liveWindSpeed.value = windSpeed.toInt().toBangla()
+                                livePressure.value = "${pressure.toInt().toBangla()} hPa"
                             }
                             if (json.has("daily")) {
                                 val daily = json.getJSONObject("daily")
@@ -711,6 +751,66 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                                     liveForecastTemps.value = newTemps
                                     liveForecastCodes.value = newCodes
                                 }
+                                if (daily.has("sunrise") && daily.has("sunset")) {
+                                    val sunriseArr = daily.getJSONArray("sunrise")
+                                    val sunsetArr = daily.getJSONArray("sunset")
+                                    if (sunriseArr.length() > 0 && sunsetArr.length() > 0) {
+                                        val srIso = sunriseArr.getString(0)
+                                        val ssIso = sunsetArr.getString(0)
+                                        val srTime = srIso.substringAfter("T", "05:22")
+                                        val ssTime = ssIso.substringAfter("T", "18:41")
+                                        liveSunrise.value = srTime.toBanglaDigits()
+                                        liveSunset.value = ssTime.toBanglaDigits()
+                                    }
+                                }
+                            }
+                            if (json.has("hourly")) {
+                                val hourly = json.getJSONObject("hourly")
+                                if (hourly.has("time") && hourly.has("temperature_2m") && hourly.has("weather_code")) {
+                                    val timesArr = hourly.getJSONArray("time")
+                                    val tempsArr = hourly.getJSONArray("temperature_2m")
+                                    val codesArr = hourly.getJSONArray("weather_code")
+
+                                    val sdfHour = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:00", java.util.Locale.US)
+                                    val currentHourStr = sdfHour.format(java.util.Date())
+                                    var startIndex = 0
+                                    for (i in 0 until timesArr.length()) {
+                                        if (timesArr.getString(i) >= currentHourStr) {
+                                            startIndex = i
+                                            break
+                                        }
+                                    }
+
+                                    val hTimes = mutableListOf<String>()
+                                    val hTemps = mutableListOf<String>()
+                                    val hCodes = mutableListOf<Int>()
+
+                                    val ssBangla = liveSunset.value
+                                    var sunsetInserted = false
+
+                                    for (i in startIndex until minOf(startIndex + 6, timesArr.length())) {
+                                        val isoTime = timesArr.getString(i)
+                                        val hourOnly = isoTime.substringAfter("T", "12:00")
+                                        val hourOnlyBangla = hourOnly.toBanglaDigits()
+
+                                        if (!sunsetInserted && ssBangla.isNotEmpty() && hourOnlyBangla > ssBangla) {
+                                            hTimes.add(ssBangla)
+                                            hTemps.add("সূর্যাস্ত")
+                                            hCodes.add(-1)
+                                            sunsetInserted = true
+                                        }
+
+                                        hTimes.add(hourOnlyBangla)
+                                        hTemps.add("${tempsArr.getDouble(i).toInt().toBangla()}°সে.")
+                                        hCodes.add(codesArr.getInt(i))
+                                    }
+
+                                    if (hTimes.isNotEmpty()) {
+                                        liveHourlyTimes.value = hTimes
+                                        liveHourlyTemps.value = hTemps
+                                        liveHourlyCodes.value = hCodes
+                                    }
+                                }
                             }
 
                             // Save to SharedPreferences for quick offline-resilient loads
@@ -721,6 +821,15 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                                 .putInt("LIVE_IS_DAY", liveIsDay.value)
                                 .putString("LIVE_FORECAST_TEMPS", liveForecastTemps.value.joinToString(","))
                                 .putString("LIVE_FORECAST_CODES", liveForecastCodes.value.joinToString(","))
+                                .putString("LIVE_REAL_FEEL", liveRealFeel.value)
+                                .putString("LIVE_HUMIDITY", liveHumidity.value)
+                                .putString("LIVE_WIND_SPEED", liveWindSpeed.value)
+                                .putString("LIVE_PRESSURE", livePressure.value)
+                                .putString("LIVE_SUNRISE", liveSunrise.value)
+                                .putString("LIVE_SUNSET", liveSunset.value)
+                                .putString("LIVE_HOURLY_TIMES", liveHourlyTimes.value.joinToString(","))
+                                .putString("LIVE_HOURLY_TEMPS", liveHourlyTemps.value.joinToString(","))
+                                .putString("LIVE_HOURLY_CODES", liveHourlyCodes.value.joinToString(","))
                                 .apply()
                         }
                     }
@@ -9748,6 +9857,493 @@ fun getWeatherIconAndColor(code: Int, isNight: Boolean): Pair<androidx.compose.u
     }
 }
 
+data class CelestialState(
+    val isNight: Boolean,
+    val progress: Float
+)
+
+fun calculateCelestialState(sunriseStr: String, sunsetStr: String): CelestialState {
+    return try {
+        val now = java.util.Calendar.getInstance()
+        val curMinutes = now.get(java.util.Calendar.HOUR_OF_DAY) * 60 + now.get(java.util.Calendar.MINUTE)
+
+        val srEng = sunriseStr.toEnglishDigits()
+        val ssEng = sunsetStr.toEnglishDigits()
+
+        val srParts = srEng.split(":")
+        val ssParts = ssEng.split(":")
+
+        val srMinutes = srParts[0].toInt() * 60 + srParts[1].toInt()
+        val ssMinutes = ssParts[0].toInt() * 60 + ssParts[1].toInt()
+
+        if (curMinutes in srMinutes..ssMinutes) {
+            // DAYTIME: Sun moves from East (Sunrise, left) to West (Sunset, right)
+            val dayDuration = (ssMinutes - srMinutes).coerceAtLeast(1)
+            val elapsed = curMinutes - srMinutes
+            val p = (elapsed.toFloat() / dayDuration.toFloat()).coerceIn(0.02f, 0.98f)
+            CelestialState(isNight = false, progress = p)
+        } else {
+            // NIGHTTIME: Moon moves from Sunset to Sunrise
+            val nightDuration = (1440 - ssMinutes + srMinutes).coerceAtLeast(1)
+            val elapsed = if (curMinutes > ssMinutes) {
+                curMinutes - ssMinutes
+            } else {
+                (1440 - ssMinutes) + curMinutes
+            }
+            val p = (elapsed.toFloat() / nightDuration.toFloat()).coerceIn(0.02f, 0.98f)
+            CelestialState(isNight = true, progress = p)
+        }
+    } catch (e: Exception) {
+        CelestialState(isNight = false, progress = 0.5f)
+    }
+}
+
+fun formatShortLocation(loc: String): String {
+    if (loc.isBlank()) return "Ctg"
+    var clean = loc.toEnglishDigits()
+        .replace(", Bangladesh", "", ignoreCase = true)
+        .replace(", বাংলাদেশ", "", ignoreCase = true)
+        .trim()
+    clean = clean
+        .replace("Chittagong", "Ctg", ignoreCase = true)
+        .replace("চট্টগ্রাম", "Ctg", ignoreCase = true)
+        .replace("Dhaka", "Dhaka", ignoreCase = true)
+        .replace("ঢাকা", "Dhaka", ignoreCase = true)
+        .replace("Sylhet", "Sylhet", ignoreCase = true)
+        .replace("সিলেট", "Sylhet", ignoreCase = true)
+        .replace("Rajshahi", "Rajshahi", ignoreCase = true)
+        .replace("রাজশাহী", "Rajshahi", ignoreCase = true)
+        .replace("Khulna", "Khulna", ignoreCase = true)
+        .replace("খুলনা", "Khulna", ignoreCase = true)
+        .replace("Barisal", "Barisal", ignoreCase = true)
+        .replace("বরিশাল", "Barisal", ignoreCase = true)
+        .replace("Rangpur", "Rangpur", ignoreCase = true)
+        .replace("রংপুর", "Rangpur", ignoreCase = true)
+        .replace("Mymensingh", "Mymensingh", ignoreCase = true)
+        .replace("ময়মনসিংহ", "Mymensingh", ignoreCase = true)
+        .replace("Comilla", "Cumilla", ignoreCase = true)
+        .replace("কুমিল্লা", "Cumilla", ignoreCase = true)
+    val parts = clean.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    return if (parts.isNotEmpty()) parts.take(2).joinToString(", ") else "Ctg"
+}
+
+fun String.toCleanEnglishWeatherMetric(): String {
+    return this.toEnglishDigits()
+        .replace("°সে.", "°C")
+        .replace("সূর্যাস্ত", "Sunset")
+}
+
+@Composable
+fun WeatherMetricItem(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = label,
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.Normal,
+            color = Color.White.copy(alpha = 0.8f)
+        )
+    }
+}
+
+@Composable
+fun ImageStyleWeatherDashboard(
+    locationName: String,
+    realFeel: String,
+    humidity: String,
+    windSpeed: String,
+    pressure: String,
+    sunriseTime: String,
+    sunsetTime: String,
+    hourlyTimes: List<String>,
+    hourlyTemps: List<String>,
+    hourlyCodes: List<Int>,
+    forecastDays: List<String>,
+    forecastTemps: List<String>,
+    forecastCodes: List<Int>,
+    isFetching: Boolean,
+    onRefresh: () -> Unit,
+    onCardClick: () -> Unit
+) {
+    val celestialState = remember(sunriseTime, sunsetTime) {
+        calculateCelestialState(sunriseTime, sunsetTime)
+    }
+
+    val englishDateTime = remember {
+        val sdf = java.text.SimpleDateFormat("HH:mm • EEE, d MMM", java.util.Locale.US)
+        sdf.format(java.util.Date())
+    }
+
+    val shortLoc = remember(locationName) {
+        formatShortLocation(locationName)
+    }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCardClick() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+        ) {
+            // Header Row: Time/Date Left, Location/Refresh Right
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left: Time & Date in English
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccessTime,
+                        contentDescription = "Time",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = englishDateTime,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White.copy(alpha = 0.95f)
+                    )
+                }
+
+                // Right: Short Location & Refresh
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = "Location",
+                            tint = Color(0xFFF87171),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = shortLoc,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        IconButton(
+                            onClick = onRefresh,
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            if (isFetching) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 1.8.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Arc Curve Section (Taller & Larger Arc with Weather Metrics Framed Inside)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(135.dp)
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+
+                    val startX = w * 0.08f
+                    val startY = h * 0.85f
+                    val endX = w * 0.92f
+                    val endY = h * 0.85f
+                    val controlX = w * 0.5f
+                    val controlY = h * -0.22f // Arches up high, creating a large frame
+
+                    val arcPath = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(startX, startY)
+                        quadraticTo(controlX, controlY, endX, endY)
+                    }
+
+                    // Full dashed curve
+                    drawPath(
+                        path = arcPath,
+                        color = Color.White.copy(alpha = 0.35f),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 2.5.dp.toPx(),
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 10f), 0f)
+                        )
+                    )
+
+                    // Solid segment up to celestial position
+                    val pathMeasure = android.graphics.PathMeasure(arcPath.asAndroidPath(), false)
+                    val totalLength = pathMeasure.length
+                    val currentLength = totalLength * celestialState.progress.coerceIn(0f, 1f)
+
+                    val solidPath = android.graphics.Path()
+                    pathMeasure.getSegment(0f, currentLength, solidPath, true)
+
+                    val activePathColor = if (celestialState.isNight) Color(0xFF93C5FD) else Color(0xFFFBBF24)
+
+                    drawPath(
+                        path = solidPath.asComposePath(),
+                        color = activePathColor.copy(alpha = 0.95f),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx())
+                    )
+
+                    // Celestial Position on Arc
+                    val pos = FloatArray(2)
+                    val tan = FloatArray(2)
+                    pathMeasure.getPosTan(currentLength, pos, tan)
+
+                    val cx = if (pos[0] != 0f) pos[0] else startX + (endX - startX) * celestialState.progress
+                    val cy = if (pos[1] != 0f) pos[1] else startY
+
+                    if (celestialState.isNight) {
+                        // Draw Glowing Moon
+                        drawCircle(
+                            color = Color(0xFF93C5FD).copy(alpha = 0.35f),
+                            radius = 14.dp.toPx(),
+                            center = androidx.compose.ui.geometry.Offset(cx, cy)
+                        )
+                        drawCircle(
+                            color = Color(0xFFE2E8F0),
+                            radius = 8.5.dp.toPx(),
+                            center = androidx.compose.ui.geometry.Offset(cx, cy)
+                        )
+                        drawCircle(
+                            color = Color(0xFF1E293B).copy(alpha = 0.85f),
+                            radius = 7.5.dp.toPx(),
+                            center = androidx.compose.ui.geometry.Offset(cx + 4.dp.toPx(), cy - 3.dp.toPx())
+                        )
+                    } else {
+                        // Draw Glowing Sun
+                        drawCircle(
+                            color = Color(0xFFFBBF24).copy(alpha = 0.35f),
+                            radius = 14.dp.toPx(),
+                            center = androidx.compose.ui.geometry.Offset(cx, cy)
+                        )
+                        drawCircle(
+                            color = Color(0xFFF59E0B),
+                            radius = 8.5.dp.toPx(),
+                            center = androidx.compose.ui.geometry.Offset(cx, cy)
+                        )
+
+                        // Sun rays
+                        for (angle in 0 until 360 step 45) {
+                            val rad = Math.toRadians(angle.toDouble())
+                            val r1 = 10.dp.toPx()
+                            val r2 = 15.dp.toPx()
+                            drawLine(
+                                color = Color(0xFFFBBF24),
+                                start = androidx.compose.ui.geometry.Offset(
+                                    cx + (r1 * Math.cos(rad)).toFloat(),
+                                    cy + (r1 * Math.sin(rad)).toFloat()
+                                ),
+                                end = androidx.compose.ui.geometry.Offset(
+                                    cx + (r2 * Math.cos(rad)).toFloat(),
+                                    cy + (r2 * Math.sin(rad)).toFloat()
+                                ),
+                                strokeWidth = 2.dp.toPx()
+                            )
+                        }
+                    }
+                }
+
+                // Left Sunrise Time
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 0.dp, bottom = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.WbSunny,
+                        contentDescription = "Sunrise",
+                        tint = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = sunriseTime.toEnglishDigits(),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                // Right Sunset Time
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 0.dp, bottom = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.WbTwilight,
+                        contentDescription = "Sunset",
+                        tint = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = sunsetTime.toEnglishDigits(),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                // 4 Under-Arc Weather Metrics (Framed inside the arc dome)
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth(0.70f)
+                        .padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    WeatherMetricItem(value = realFeel.toCleanEnglishWeatherMetric(), label = "RealFeel")
+                    WeatherMetricItem(value = humidity.toCleanEnglishWeatherMetric(), label = "Humidity")
+                    WeatherMetricItem(value = windSpeed.toCleanEnglishWeatherMetric(), label = "S. force")
+                    WeatherMetricItem(value = pressure.toCleanEnglishWeatherMetric(), label = "Pressure")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Divider(color = Color.White.copy(alpha = 0.2f), thickness = 1.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Bottom Hourly Forecast Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val displayCount = minOf(hourlyTimes.size, minOf(hourlyTemps.size, hourlyCodes.size))
+                for (i in 0 until displayCount) {
+                    val hTime = hourlyTimes[i].toEnglishDigits()
+                    val hTemp = hourlyTemps[i].toCleanEnglishWeatherMetric()
+                    val hCode = hourlyCodes[i]
+
+                    val (hIcon, hTint) = when (hCode) {
+                        -1 -> Icons.Default.WbTwilight to Color(0xFFFBBF24)
+                        0, 1 -> Icons.Default.WbSunny to Color(0xFFFBBF24)
+                        2, 3 -> Icons.Default.Cloud to Color(0xFFCBD5E1)
+                        51, 53, 55, 61, 63, 65 -> Icons.Default.Grain to Color(0xFF60A5FA)
+                        80, 81, 82, 95, 96, 99 -> Icons.Default.Thunderstorm to Color(0xFF93C5FD)
+                        else -> Icons.Default.Cloud to Color(0xFFCBD5E1)
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = hTime,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                        Icon(
+                            imageVector = hIcon,
+                            contentDescription = hTime,
+                            tint = hTint,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = hTemp,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Divider(color = Color.White.copy(alpha = 0.15f), thickness = 0.8.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 7-Day Forecast Section
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "7-Day Forecast",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val count = minOf(forecastDays.size, minOf(forecastTemps.size, forecastCodes.size))
+                    for (i in 0 until count) {
+                        val dayLabel = forecastDays[i]
+                        val fTemp = forecastTemps.getOrNull(i)?.toCleanEnglishWeatherMetric() ?: "30°C"
+                        val fCode = forecastCodes.getOrNull(i) ?: 0
+                        val (fIcon, fTint) = getWeatherIconAndColor(fCode, isNight = false)
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Text(
+                                text = dayLabel,
+                                fontSize = 11.sp,
+                                fontWeight = if (i == 0) FontWeight.Bold else FontWeight.Medium,
+                                color = if (i == 0) Color.White else Color.White.copy(alpha = 0.85f)
+                            )
+                            Icon(
+                                imageVector = fIcon,
+                                contentDescription = dayLabel,
+                                tint = fTint,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = fTemp,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun DashboardHomeScreen(
     entries: List<DailyEntry>,
@@ -9777,6 +10373,15 @@ fun DashboardHomeScreen(
     val liveForecastCodesVal by viewModel.liveForecastCodes.collectAsStateWithLifecycle()
     val isFetchingWeatherVal by viewModel.isFetchingWeather.collectAsStateWithLifecycle()
     val liveIsDayVal by viewModel.liveIsDay.collectAsStateWithLifecycle()
+    val liveRealFeelVal by viewModel.liveRealFeel.collectAsStateWithLifecycle()
+    val liveHumidityVal by viewModel.liveHumidity.collectAsStateWithLifecycle()
+    val liveWindSpeedVal by viewModel.liveWindSpeed.collectAsStateWithLifecycle()
+    val livePressureVal by viewModel.livePressure.collectAsStateWithLifecycle()
+    val liveSunriseVal by viewModel.liveSunrise.collectAsStateWithLifecycle()
+    val liveSunsetVal by viewModel.liveSunset.collectAsStateWithLifecycle()
+    val liveHourlyTimesVal by viewModel.liveHourlyTimes.collectAsStateWithLifecycle()
+    val liveHourlyTempsVal by viewModel.liveHourlyTemps.collectAsStateWithLifecycle()
+    val liveHourlyCodesVal by viewModel.liveHourlyCodes.collectAsStateWithLifecycle()
 
     val locationPermissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -9872,19 +10477,17 @@ fun DashboardHomeScreen(
         }
     }
 
-    // Forecast days generator in Bengali
-    val daysOfWeek = listOf("রবি", "সোম", "মঙ্গল", "বুধ", "বৃহ", "শুক্র", "শনি")
-    val forecastDays = remember {
+    // Forecast days generator in English (3-letter abbreviation)
+    val daysOfWeekEng = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+    val forecastDaysEng = remember {
         val list = mutableListOf<String>()
         val tempCal = Calendar.getInstance()
         for (i in 0 until 7) {
             if (i == 0) {
-                list.add("আজ")
-            } else if (i == 1) {
-                list.add("আগামী")
+                list.add("Today")
             } else {
                 val dayOfWeek = tempCal.get(Calendar.DAY_OF_WEEK) - 1
-                list.add(daysOfWeek[(dayOfWeek + 7) % 7])
+                list.add(daysOfWeekEng[(dayOfWeek + 7) % 7])
             }
             tempCal.add(Calendar.DAY_OF_YEAR, 1)
         }
@@ -10056,268 +10659,53 @@ fun DashboardHomeScreen(
                 }
             }
 
-            // 2. NEW GLASSMORPHISM WEATHER & TIME DASHBOARD (Frosted glass effect, blurred background, thin border, 18dp rounded corners)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = 0.12f),
-                                Color.White.copy(alpha = 0.04f)
+            // 2. WEATHER DASHBOARD (Custom design matching user image)
+            ImageStyleWeatherDashboard(
+                locationName = liveLocationNameVal,
+                realFeel = liveRealFeelVal,
+                humidity = liveHumidityVal,
+                windSpeed = liveWindSpeedVal,
+                pressure = livePressureVal,
+                sunriseTime = liveSunriseVal,
+                sunsetTime = liveSunsetVal,
+                hourlyTimes = liveHourlyTimesVal,
+                hourlyTemps = liveHourlyTempsVal,
+                hourlyCodes = liveHourlyCodesVal,
+                forecastDays = forecastDaysEng,
+                forecastTemps = liveForecastTempsVal,
+                forecastCodes = liveForecastCodesVal,
+                isFetching = isFetchingWeatherVal,
+                onRefresh = {
+                    val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                        context,
+                        android.Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    val coarseGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                        context,
+                        android.Manifest.permission.ACCESS_COARSE_LOCATION
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                    if (fineGranted || coarseGranted) {
+                        viewModel.startLocationTracking(context)
+                        Toast.makeText(context, "লাইভ অবস্থান ও আবহাওয়া আপডেট করা হচ্ছে...", Toast.LENGTH_SHORT).show()
+                    } else {
+                        locationPermissionsLauncher.launch(
+                            arrayOf(
+                                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                android.Manifest.permission.ACCESS_COARSE_LOCATION
                             )
                         )
-                    )
-                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(18.dp))
-                    .clickable {
-                        // Click to cycle manually and preview DAY -> NIGHT -> STORMY_RAIN immediately
-                        manualUiState = when (activeState) {
-                            HomeUiState.DAY -> HomeUiState.NIGHT
-                            HomeUiState.NIGHT -> HomeUiState.STORMY_RAIN
-                            HomeUiState.STORMY_RAIN -> HomeUiState.DAY
-                            else -> HomeUiState.DAY
-                        }
                     }
-                    .padding(14.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // Top row: Left Time Bar & Right Location & Temp
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Left: Dynamic Time Bar (Timestamp & Date in Bengali)
-                        Column {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AccessTime,
-                                    contentDescription = "সময়",
-                                    tint = Color.White.copy(alpha = 0.85f),
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = currentTimeString.ifEmpty { "১২:০০:০০" },
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "$banglaDay • $banglaDate",
-                                fontSize = 11.sp,
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        // Right: Location & Real-time Temperature
-                        Column(horizontalAlignment = Alignment.End) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.LocationOn,
-                                    contentDescription = "অবস্থান",
-                                    tint = Color(0xFFEF4444),
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = liveLocationNameVal,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                // Small manual refresh button requested by the user
-                                IconButton(
-                                    onClick = {
-                                        val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-                                            context,
-                                            android.Manifest.permission.ACCESS_FINE_LOCATION
-                                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                                        val coarseGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-                                            context,
-                                            android.Manifest.permission.ACCESS_COARSE_LOCATION
-                                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-                                        if (fineGranted || coarseGranted) {
-                                            viewModel.startLocationTracking(context)
-                                            Toast.makeText(context, "লাইভ অবস্থান ও আবহাওয়া আপডেট করা হচ্ছে...", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            locationPermissionsLauncher.launch(
-                                                arrayOf(
-                                                    android.Manifest.permission.ACCESS_FINE_LOCATION,
-                                                    android.Manifest.permission.ACCESS_COARSE_LOCATION
-                                                )
-                                            )
-                                        }
-                                    },
-                                    modifier = Modifier.size(20.dp)
-                                ) {
-                                    if (isFetchingWeatherVal) {
-                                        CircularProgressIndicator(
-                                            color = Color.White,
-                                            modifier = Modifier.size(11.dp),
-                                            strokeWidth = 1.5.dp
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = "রিফ্রেশ করুন",
-                                            tint = Color.White.copy(alpha = 0.85f),
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = liveWeatherIcon,
-                                    contentDescription = "আবহাওয়া আইকন",
-                                    tint = liveWeatherTint,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = liveTemperatureVal,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
-                                )
-                            }
-                        }
-                    }
-
-                    Divider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
-
-                    // Center: Horizontal 7-day Weather Forecast
-                    Text(
-                        text = "৭ দিনের আবহাওয়ার পূর্বাভাস (ট্যাপ করে থিম বদলান)",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.6f),
-                        letterSpacing = 0.5.sp
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        forecastDays.forEachIndexed { idx, dayName ->
-                            val forecastCode = liveForecastCodesVal.getOrNull(idx) ?: 0
-                            val (fIcon, fTint) = getWeatherIconAndColor(forecastCode, isNight = false)
-                            val forecastTemp = liveForecastTempsVal.getOrNull(idx) ?: "৩০°"
-
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = dayName,
-                                    fontSize = 9.sp,
-                                    color = if (idx == 0) Color.White else Color.White.copy(alpha = 0.6f),
-                                    fontWeight = if (idx == 0) FontWeight.Bold else FontWeight.Medium
-                                )
-                                Icon(
-                                    imageVector = fIcon,
-                                    contentDescription = "পূর্বাভাস আইকন",
-                                    tint = fTint,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = forecastTemp.toBanglaDigits(),
-                                    fontSize = 9.sp,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
-                    // Bottom: Dynamic Banner Text for Holidays/Warnings
-                    val bannerText = when (activeState) {
-                        HomeUiState.DAY -> "আজ শুভ দিন! হিসাব গুছিয়ে রাখার উপযুক্ত সময়।"
-                        HomeUiState.NIGHT -> "শুভ রাত্রি! দিনের সব হিসাব মিলিয়ে নিতে ভুলবেন না।"
-                        HomeUiState.STORMY_RAIN -> "⚠️ বৃষ্টির সতর্কতা! অতিভারী বৃষ্টির পূর্বাভাস জারি করা হয়েছে।"
-                        else -> "আজ শুভ দিন! হিসাব গুছিয়ে রাখার উপযুক্ত সময়।"
-                    }
-
-                    val bannerBg = when (activeState) {
-                        HomeUiState.DAY -> Color.White.copy(alpha = 0.05f)
-                        HomeUiState.NIGHT -> Color.White.copy(alpha = 0.03f)
-                        HomeUiState.STORMY_RAIN -> Color(0xFFEF4444).copy(alpha = 0.15f)
-                        else -> Color.White.copy(alpha = 0.05f)
-                    }
-
-                    val bannerBorder = when (activeState) {
-                        HomeUiState.DAY -> BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
-                        HomeUiState.NIGHT -> BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
-                        HomeUiState.STORMY_RAIN -> BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.3f))
-                        else -> BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
-                    }
-
-                    val bannerTextColor = when (activeState) {
-                        HomeUiState.DAY -> Color.White.copy(alpha = 0.9f)
-                        HomeUiState.NIGHT -> Color.White.copy(alpha = 0.8f)
-                        HomeUiState.STORMY_RAIN -> Color(0xFFFCA5A5)
-                        else -> Color.White.copy(alpha = 0.9f)
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = bannerBg,
-                        border = bannerBorder,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = when (activeState) {
-                                    HomeUiState.DAY -> Icons.Default.CalendarToday
-                                    HomeUiState.NIGHT -> Icons.Default.Bedtime
-                                    HomeUiState.STORMY_RAIN -> Icons.Default.Warning
-                                    else -> Icons.Default.CalendarToday
-                                },
-                                contentDescription = "ব্যানার আইকন",
-                                tint = when (activeState) {
-                                    HomeUiState.DAY -> Color(0xFF22D3EE)
-                                    HomeUiState.NIGHT -> Color(0xFF93C5FD)
-                                    HomeUiState.STORMY_RAIN -> Color(0xFFEF4444)
-                                    else -> Color(0xFF22D3EE)
-                                },
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = bannerText,
-                                fontSize = 9.5.sp,
-                                color = bannerTextColor,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = "ট্যাপ করুন ↻",
-                                fontSize = 7.sp,
-                                color = Color.White.copy(alpha = 0.4f),
-                                fontWeight = FontWeight.Normal
-                            )
-                        }
+                },
+                onCardClick = {
+                    manualUiState = when (activeState) {
+                        HomeUiState.DAY -> HomeUiState.NIGHT
+                        HomeUiState.NIGHT -> HomeUiState.STORMY_RAIN
+                        HomeUiState.STORMY_RAIN -> HomeUiState.DAY
+                        else -> HomeUiState.DAY
                     }
                 }
-            }
+            )
 
             // 3. ORIGINAL REAL-TIME SUMMARY CARD WITH 3D BORDER (Shifted downward smoothly)
             Card(
