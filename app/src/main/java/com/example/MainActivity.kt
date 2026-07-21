@@ -233,17 +233,217 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
     )
     val isFetchingWeather = MutableStateFlow(false)
 
+    private val cityTranslation = mapOf(
+        "dhaka" to "ঢাকা",
+        "chittagong" to "চট্টগ্রাম",
+        "chattogram" to "চট্টগ্রাম",
+        "sylhet" to "সিলেট",
+        "rajshahi" to "রাজশাহী",
+        "khulna" to "খুলনা",
+        "barisal" to "বরিশাল",
+        "barishal" to "বরিশাল",
+        "rangpur" to "রংপুর",
+        "mymensingh" to "ময়মনসিংহ",
+        "comilla" to "কুমিল্লা",
+        "cumilla" to "কুমিল্লা",
+        "gazipur" to "গাজীপুর",
+        "narayanganj" to "নারায়ণগঞ্জ",
+        "bogura" to "বগুড়া",
+        "bogra" to "বগুড়া",
+        "cox's bazar" to "কক্সবাজার",
+        "cox’s bazar" to "কক্সবাজার",
+        "feni" to "ফেনী",
+        "jessore" to "যশোর",
+        "jashore" to "যশোর",
+        "tangail" to "টাঙ্গাইল",
+        "dinajpur" to "দিনাজপুর",
+        "kushtia" to "কুষ্টিয়া",
+        "noakhali" to "নোয়াখালী",
+        "pabna" to "পাবনা",
+        "faridpur" to "ফরিদপুর",
+        "jamalpur" to "জামালপুর"
+    )
+
     private var locationListener: android.location.LocationListener? = null
 
+    private fun isEmulator(): Boolean {
+        return try {
+            val brand = android.os.Build.BRAND ?: ""
+            val device = android.os.Build.DEVICE ?: ""
+            val fingerprint = android.os.Build.FINGERPRINT ?: ""
+            val hardware = android.os.Build.HARDWARE ?: ""
+            val model = android.os.Build.MODEL ?: ""
+            val manufacturer = android.os.Build.MANUFACTURER ?: ""
+            val product = android.os.Build.PRODUCT ?: ""
+            val board = android.os.Build.BOARD ?: ""
+
+            (brand.startsWith("generic") && device.startsWith("generic"))
+                    || fingerprint.startsWith("generic")
+                    || fingerprint.startsWith("unknown")
+                    || hardware.contains("goldfish")
+                    || hardware.contains("ranchu")
+                    || hardware.contains("cutf")
+                    || hardware.contains("cuttlefish")
+                    || device.contains("cutf")
+                    || device.contains("cuttlefish")
+                    || product.contains("cutf")
+                    || product.contains("cuttlefish")
+                    || board.contains("cutf")
+                    || board.contains("cuttlefish")
+                    || model.contains("google_sdk")
+                    || model.contains("Emulator")
+                    || model.contains("Android SDK built for x86")
+                    || manufacturer.contains("Genymotion")
+                    || product.contains("sdk_gphone")
+                    || product.contains("google_sdk")
+                    || product.contains("sdk")
+                    || product.contains("sdk_x86")
+                    || product.contains("vbox86p")
+                    || product.contains("emulator")
+                    || product.contains("simulator")
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun getClosestBangladeshCity(lat: Double, lon: Double): String {
+        val cities = listOf(
+            "ঢাকা" to Pair(23.8103, 90.4125),
+            "চট্টগ্রাম" to Pair(22.3569, 91.7832),
+            "সিলেট" to Pair(24.8949, 91.8687),
+            "রাজশাহী" to Pair(24.3636, 88.6241),
+            "খুলনা" to Pair(22.8456, 89.5403),
+            "বরিশাল" to Pair(22.7010, 90.3535),
+            "রংপুর" to Pair(25.7439, 89.2752),
+            "ময়মনসিংহ" to Pair(24.7471, 90.4203)
+        )
+        var closestCity = "ঢাকা"
+        var minDistance = Double.MAX_VALUE
+        for (city in cities) {
+            val dLat = lat - city.second.first
+            val dLon = lon - city.second.second
+            val dist = dLat * dLat + dLon * dLon
+            if (dist < minDistance) {
+                minDistance = dist
+                closestCity = city.first
+            }
+        }
+        return closestCity
+    }
+
+    fun fetchIpLocationAndWeather(contextOverride: Context? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            var lat = Double.NaN
+            var lon = Double.NaN
+            var city = "Dhaka"
+            var success = false
+
+            val client = OkHttpClient.Builder()
+                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            // Try 1: freeipapi.com (reliable, HTTPS, no keys, higher limits)
+            try {
+                val request = Request.Builder().url("https://freeipapi.com/api/json").build()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string()
+                        if (body != null) {
+                            val json = JSONObject(body)
+                            lat = json.optDouble("latitude", Double.NaN)
+                            lon = json.optDouble("longitude", Double.NaN)
+                            city = json.optString("cityName", "Dhaka")
+                            if (!lat.isNaN() && !lon.isNaN()) {
+                                success = true
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            // Try 2: ipapi.co (fallback)
+            if (!success) {
+                try {
+                    val request = Request.Builder().url("https://ipapi.co/json/").build()
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string()
+                            if (body != null) {
+                                val json = JSONObject(body)
+                                lat = json.optDouble("latitude", Double.NaN)
+                                lon = json.optDouble("longitude", Double.NaN)
+                                city = json.optString("city", "Dhaka")
+                                if (!lat.isNaN() && !lon.isNaN()) {
+                                    success = true
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            // Try 3: ipinfo.io (fallback 2)
+            if (!success) {
+                try {
+                    val request = Request.Builder().url("https://ipinfo.io/json").build()
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string()
+                            if (body != null) {
+                                val json = JSONObject(body)
+                                val loc = json.optString("loc", "")
+                                if (loc.contains(",")) {
+                                    val parts = loc.split(",")
+                                    lat = parts[0].toDoubleOrNull() ?: Double.NaN
+                                    lon = parts[1].toDoubleOrNull() ?: Double.NaN
+                                    city = json.optString("city", "Dhaka")
+                                    if (!lat.isNaN() && !lon.isNaN()) {
+                                        success = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            if (success && !lat.isNaN() && !lon.isNaN()) {
+                val translatedCity = cityTranslation[city.lowercase(java.util.Locale.ROOT)] ?: city
+                fetchWeather(lat, lon, cityFallback = translatedCity, contextOverride = contextOverride)
+            } else {
+                fetchWeather(23.8103, 90.4125, cityFallback = "Dhaka", contextOverride = contextOverride)
+            }
+        }
+    }
+
     @android.annotation.SuppressLint("MissingPermission")
-    fun startLocationTracking() {
-        // First check permissions
+    fun startLocationTracking(activityContext: Context? = null) {
+        val useCtx = activityContext ?: context
+
+        // Always trigger an initial fast load of IP-based location and weather!
+        // This ensures a rapid response even if GPS takes time to lock,
+        // or if the user is running the app in an environment where physical GPS is unavailable.
+        fetchIpLocationAndWeather(useCtx)
+
+        // Bypassing physical GPS/Network provider registration on emulators prevents AppOps MONITOR_LOCATION or GPS errors
+        if (isEmulator()) {
+            return
+        }
+
+        // Check permissions
         val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
-            context,
+            useCtx,
             android.Manifest.permission.ACCESS_FINE_LOCATION
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
-            context,
+            useCtx,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
@@ -251,21 +451,21 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
             return
         }
 
-        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager ?: return
+        val locationManager = useCtx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager ?: return
         
         // Stop previous if any
-        stopLocationTracking()
+        stopLocationTracking(useCtx)
 
         val listener = object : android.location.LocationListener {
             override fun onLocationChanged(location: android.location.Location) {
-                fetchWeather(location.latitude, location.longitude)
+                fetchWeather(location.latitude, location.longitude, contextOverride = useCtx)
             }
             override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
             override fun onProviderEnabled(provider: String) {
                 try {
                     val lastKnown = locationManager.getLastKnownLocation(provider)
                     if (lastKnown != null) {
-                        fetchWeather(lastKnown.latitude, lastKnown.longitude)
+                        fetchWeather(lastKnown.latitude, lastKnown.longitude, contextOverride = useCtx)
                     }
                 } catch (e: SecurityException) {
                     e.printStackTrace()
@@ -276,30 +476,72 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         locationListener = listener
 
         try {
-            // Request from both Network and GPS to get updates as quickly and reliably as possible
-            if (locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    android.location.LocationManager.NETWORK_PROVIDER,
-                    300000L, // 5 minutes interval
-                    50f,     // 50 meters
-                    listener
-                )
-                val lastKnown = locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
-                if (lastKnown != null) {
-                    fetchWeather(lastKnown.latitude, lastKnown.longitude)
+            // Check best last-known location across active providers
+            var bestLocation: android.location.Location? = null
+            try {
+                val providers = locationManager.getProviders(true)
+                if (providers != null) {
+                    for (prov in providers) {
+                        try {
+                            val loc = locationManager.getLastKnownLocation(prov)
+                            if (loc != null) {
+                                if (bestLocation == null || loc.accuracy < bestLocation.accuracy) {
+                                    bestLocation = loc
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            if (locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    android.location.LocationManager.GPS_PROVIDER,
-                    300000L,
-                    50f,
-                    listener
-                )
-                val lastKnown = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-                if (lastKnown != null) {
-                    fetchWeather(lastKnown.latitude, lastKnown.longitude)
+
+            bestLocation?.let {
+                fetchWeather(it.latitude, it.longitude, contextOverride = useCtx)
+            }
+
+            // Register location updates with separate, isolated try-catch blocks per provider.
+            // This prevents AppOps rejections or disabled hardware provider errors from crashing the app or stopping other providers.
+            try {
+                if (locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
+                    locationManager.requestLocationUpdates(
+                        android.location.LocationManager.NETWORK_PROVIDER,
+                        15000L,
+                        10f,
+                        listener
+                    )
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            try {
+                if (locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
+                    locationManager.requestLocationUpdates(
+                        android.location.LocationManager.GPS_PROVIDER,
+                        15000L,
+                        10f,
+                        listener
+                    )
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            try {
+                val providers = locationManager.getProviders(true)
+                if (providers != null && providers.contains(android.location.LocationManager.PASSIVE_PROVIDER)) {
+                    locationManager.requestLocationUpdates(
+                        android.location.LocationManager.PASSIVE_PROVIDER,
+                        15000L,
+                        10f,
+                        listener
+                    )
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         } catch (e: SecurityException) {
             e.printStackTrace()
@@ -308,9 +550,10 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         }
     }
 
-    fun stopLocationTracking() {
+    fun stopLocationTracking(activityContext: Context? = null) {
+        val useCtx = activityContext ?: context
         locationListener?.let { listener ->
-            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+            val locationManager = useCtx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
             try {
                 locationManager?.removeUpdates(listener)
             } catch (e: Exception) {
@@ -320,19 +563,35 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         locationListener = null
     }
 
-    fun fetchWeather(latitude: Double, longitude: Double) {
+    fun fetchWeather(latitude: Double, longitude: Double, cityFallback: String? = null, contextOverride: Context? = null) {
+        val useCtx = contextOverride ?: context
         viewModelScope.launch(Dispatchers.IO) {
             isFetchingWeather.value = true
             try {
                 // Reverse geocode first to update location name in Bengali
-                val geocoder = android.location.Geocoder(context, java.util.Locale("bn"))
-                val addresses = geocoder.getFromLocation(latitude, longitude, 1)
-                val cityName = if (!addresses.isNullOrEmpty()) {
-                    val addr = addresses[0]
-                    val city = addr.subAdminArea ?: addr.locality ?: addr.adminArea ?: "আমার অবস্থান"
-                    "$city, বাংলাদেশ"
-                } else {
-                    "আমার অবস্থান"
+                var cityName = "আমার অবস্থান"
+                try {
+                    val geocoder = android.location.Geocoder(useCtx, java.util.Locale("bn"))
+                    val addresses = geocoder.getFromLocation(latitude, longitude, 1)
+                    if (!addresses.isNullOrEmpty()) {
+                        val addr = addresses[0]
+                        val city = addr.subAdminArea ?: addr.locality ?: addr.adminArea ?: cityFallback
+                        cityName = if (city != null) "$city, বাংলাদেশ" else "আমার অবস্থান"
+                    } else {
+                        val fallback = cityFallback ?: getClosestBangladeshCity(latitude, longitude)
+                        cityName = "$fallback, বাংলাদেশ"
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    val fallback = cityFallback ?: getClosestBangladeshCity(latitude, longitude)
+                    cityName = "$fallback, বাংলাদেশ"
+                }
+
+                // Apply case-insensitive English-to-Bengali translation map for cities if returned in English
+                val baseCity = cityName.removeSuffix(", বাংলাদেশ").trim()
+                val translatedCity = cityTranslation[baseCity.lowercase(java.util.Locale.ROOT)]
+                if (translatedCity != null) {
+                    cityName = "$translatedCity, বাংলাদেশ"
                 }
                 liveLocationName.value = cityName
 
@@ -9422,7 +9681,7 @@ fun DashboardHomeScreen(
         val fineGranted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] ?: false
         val coarseGranted = permissions[android.Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
         if (fineGranted || coarseGranted) {
-            viewModel.startLocationTracking()
+            viewModel.startLocationTracking(context)
         }
     }
 
@@ -9437,7 +9696,7 @@ fun DashboardHomeScreen(
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
         if (fineGranted || coarseGranted) {
-            viewModel.startLocationTracking()
+            viewModel.startLocationTracking(context)
         } else {
             locationPermissionsLauncher.launch(
                 arrayOf(
@@ -9756,7 +10015,7 @@ fun DashboardHomeScreen(
                         Column(horizontalAlignment = Alignment.End) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.LocationOn,
@@ -9765,11 +10024,53 @@ fun DashboardHomeScreen(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = "ঢাকা, বাংলাদেশ",
+                                    text = liveLocationNameVal,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                // Small manual refresh button requested by the user
+                                IconButton(
+                                    onClick = {
+                                        val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                                            context,
+                                            android.Manifest.permission.ACCESS_FINE_LOCATION
+                                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                        val coarseGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                                            context,
+                                            android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                                        if (fineGranted || coarseGranted) {
+                                            viewModel.startLocationTracking(context)
+                                            Toast.makeText(context, "লাইভ অবস্থান ও আবহাওয়া আপডেট করা হচ্ছে...", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            locationPermissionsLauncher.launch(
+                                                arrayOf(
+                                                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                                )
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.size(20.dp)
+                                ) {
+                                    if (isFetchingWeatherVal) {
+                                        CircularProgressIndicator(
+                                            color = Color.White,
+                                            modifier = Modifier.size(11.dp),
+                                            strokeWidth = 1.5.dp
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "রিফ্রেশ করুন",
+                                            tint = Color.White.copy(alpha = 0.85f),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Row(
@@ -9777,29 +10078,13 @@ fun DashboardHomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
-                                    imageVector = when (activeState) {
-                                        HomeUiState.DAY -> Icons.Default.WbSunny
-                                        HomeUiState.NIGHT -> Icons.Default.NightsStay
-                                        HomeUiState.STORMY_RAIN -> Icons.Default.Thunderstorm
-                                        else -> Icons.Default.WbSunny
-                                    },
+                                    imageVector = liveWeatherIcon,
                                     contentDescription = "আবহাওয়া আইকন",
-                                    tint = when (activeState) {
-                                        HomeUiState.DAY -> Color(0xFFFBBF24)
-                                        HomeUiState.NIGHT -> Color(0xFF93C5FD)
-                                        HomeUiState.STORMY_RAIN -> Color(0xFF94A3B8)
-                                        else -> Color(0xFFFBBF24)
-                                    },
+                                    tint = liveWeatherTint,
                                     modifier = Modifier.size(16.dp)
                                 )
-                                val tempText = when (activeState) {
-                                    HomeUiState.DAY -> "৩১°সে."
-                                    HomeUiState.NIGHT -> "২৬°সে."
-                                    HomeUiState.STORMY_RAIN -> "২৩°সে."
-                                    else -> "৩১°সে."
-                                }
                                 Text(
-                                    text = tempText,
+                                    text = liveTemperatureVal,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color.White
@@ -9825,107 +10110,9 @@ fun DashboardHomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         forecastDays.forEachIndexed { idx, dayName ->
-                            val forecastIcon = when (activeState) {
-                                HomeUiState.DAY -> {
-                                    when (idx) {
-                                        0 -> Icons.Default.WbSunny
-                                        1 -> Icons.Default.Cloud
-                                        2 -> Icons.Default.Grain
-                                        3 -> Icons.Default.WbSunny
-                                        4 -> Icons.Default.Cloud
-                                        5 -> Icons.Default.Thunderstorm
-                                        else -> Icons.Default.WbSunny
-                                    }
-                                }
-                                HomeUiState.NIGHT -> {
-                                    when (idx) {
-                                        0 -> Icons.Default.NightsStay
-                                        1 -> Icons.Default.Cloud
-                                        2 -> Icons.Default.Grain
-                                        3 -> Icons.Default.NightsStay
-                                        4 -> Icons.Default.Cloud
-                                        5 -> Icons.Default.Thunderstorm
-                                        else -> Icons.Default.NightsStay
-                                    }
-                                }
-                                HomeUiState.STORMY_RAIN -> {
-                                    when (idx) {
-                                        0 -> Icons.Default.Thunderstorm
-                                        1 -> Icons.Default.Grain
-                                        2 -> Icons.Default.Thunderstorm
-                                        3 -> Icons.Default.Grain
-                                        4 -> Icons.Default.Cloud
-                                        5 -> Icons.Default.WbSunny
-                                        else -> Icons.Default.Thunderstorm
-                                    }
-                                }
-                                else -> Icons.Default.WbSunny
-                            }
-
-                            val forecastTint = when (activeState) {
-                                HomeUiState.DAY -> {
-                                    when (idx) {
-                                        0, 3, 6 -> Color(0xFFFBBF24)
-                                        1, 4 -> Color(0xFFE2E8F0)
-                                        2 -> Color(0xFF60A5FA)
-                                        else -> Color(0xFF94A3B8)
-                                    }
-                                }
-                                HomeUiState.NIGHT -> {
-                                    when (idx) {
-                                        0, 3, 6 -> Color(0xFF93C5FD)
-                                        1, 4 -> Color(0xFF94A3B8)
-                                        2 -> Color(0xFF3B82F6)
-                                        else -> Color(0xFF475569)
-                                    }
-                                }
-                                HomeUiState.STORMY_RAIN -> {
-                                    when (idx) {
-                                        5 -> Color(0xFFFBBF24)
-                                        4 -> Color(0xFFE2E8F0)
-                                        1, 3 -> Color(0xFF60A5FA)
-                                        else -> Color(0xFF94A3B8)
-                                    }
-                                }
-                                else -> Color(0xFFFBBF24)
-                            }
-
-                            val forecastTemp = when (activeState) {
-                                HomeUiState.DAY -> {
-                                    when (idx) {
-                                        0 -> "৩১°"
-                                        1 -> "২৯°"
-                                        2 -> "২৭°"
-                                        3 -> "৩২°"
-                                        4 -> "৩০°"
-                                        5 -> "২৬°"
-                                        else -> "৩১°"
-                                    }
-                                }
-                                HomeUiState.NIGHT -> {
-                                    when (idx) {
-                                        0 -> "২৫°"
-                                        1 -> "২৪°"
-                                        2 -> "২২°"
-                                        3 -> "২৬°"
-                                        4 -> "২৪°"
-                                        5 -> "২১°"
-                                        else -> "২৫°"
-                                    }
-                                }
-                                HomeUiState.STORMY_RAIN -> {
-                                    when (idx) {
-                                        0 -> "২২°"
-                                        1 -> "২৩°"
-                                        2 -> "২২°"
-                                        3 -> "২৪°"
-                                        4 -> "২৫°"
-                                        5 -> "২৭°"
-                                        else -> "২২°"
-                                    }
-                                }
-                                else -> "৩১°"
-                            }
+                            val forecastCode = liveForecastCodesVal.getOrNull(idx) ?: 0
+                            val (fIcon, fTint) = getWeatherIconAndColor(forecastCode, isNight = false)
+                            val forecastTemp = liveForecastTempsVal.getOrNull(idx) ?: "৩০°"
 
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -9938,9 +10125,9 @@ fun DashboardHomeScreen(
                                     fontWeight = if (idx == 0) FontWeight.Bold else FontWeight.Medium
                                 )
                                 Icon(
-                                    imageVector = forecastIcon,
+                                    imageVector = fIcon,
                                     contentDescription = "পূর্বাভাস আইকন",
-                                    tint = forecastTint,
+                                    tint = fTint,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
