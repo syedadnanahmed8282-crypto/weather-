@@ -232,6 +232,7 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         prefs.getString("LIVE_FORECAST_CODES", "0,1,2,0,1,3,0")?.split(",")?.map { it.toIntOrNull() ?: 0 } ?: listOf(0, 1, 2, 0, 1, 3, 0)
     )
     val isFetchingWeather = MutableStateFlow(false)
+    val liveIsDay = MutableStateFlow(prefs.getInt("LIVE_IS_DAY", 1))
 
     private val cityTranslation = mapOf(
         "dhaka" to "ঢাকা",
@@ -261,10 +262,53 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         "noakhali" to "নোয়াখালী",
         "pabna" to "পাবনা",
         "faridpur" to "ফরিদপুর",
-        "jamalpur" to "জামালপুর"
+        "jamalpur" to "জামালপুর",
+        "narsingdi" to "নরসিংদী",
+        "brahmanbaria" to "ব্রাহ্মণবাড়িয়া",
+        "chandpur" to "চাঁদপুর",
+        "satkhira" to "সাতক্ষীরা",
+        "bagerhat" to "বাগেরহাট",
+        "gopalganj" to "গোপালগঞ্জ",
+        "sirajganj" to "সিরাজগঞ্জ",
+        "netrokona" to "নেত্রকোনা",
+        "sherpur" to "শেরপুর",
+        "patuakhali" to "পটুয়াখালী",
+        "bhola" to "ভোলা",
+        "barguna" to "বরগুনা",
+        "pirojpur" to "পিরোজপুর",
+        "jhalokati" to "ঝালকাঠি",
+        "jhalokathi" to "ঝালকাঠি",
+        "habiganj" to "হবিগঞ্জ",
+        "moulvibazar" to "مৌলভীবাজার",
+        "sunamganj" to "সুনামগঞ্জ",
+        "kurigram" to "কুড়িগ্রাম",
+        "lalmonirhat" to "লালমনিরহাট",
+        "nilphamari" to "নীলফামারী",
+        "gaibandha" to "গাইবান্ধা",
+        "panchagarh" to "পঞ্চগড়",
+        "thakurgaon" to "ঠাকুরগাঁও",
+        "natore" to "নাটোর",
+        "naogaon" to "নওগাঁ",
+        "joypurhat" to "জয়পুরহাট",
+        "chapainawabganj" to "চাঁপাইনবাবগঞ্জ",
+        "nawabganj" to "নবাবগঞ্জ",
+        "meherpur" to "মেহেরপুর",
+        "chuadanga" to "চুয়াডাঙ্গা",
+        "jhenaidah" to "ঝিনাইদহ",
+        "magura" to "মাগুরা",
+        "narail" to "নড়াইল",
+        "rajbari" to "রাজবাড়ী",
+        "shariatpur" to "শরীয়তপুর",
+        "madaripur" to "মাদারীপুর",
+        "munshiganj" to "মুন্সীগঞ্জ",
+        "manikganj" to "মানিকগঞ্জ",
+        "rangamati" to "রাঙ্গামাটি",
+        "khagrachhari" to "খাগড়াছড়ি",
+        "bandarban" to "বান্দরবান"
     )
 
-    private var locationListener: android.location.LocationListener? = null
+    private var locationCallback: com.google.android.gms.location.LocationCallback? = null
+    private var fusedClientRef: com.google.android.gms.location.FusedLocationProviderClient? = null
 
     private fun isEmulator(): Boolean {
         return try {
@@ -315,7 +359,61 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
             "খুলনা" to Pair(22.8456, 89.5403),
             "বরিশাল" to Pair(22.7010, 90.3535),
             "রংপুর" to Pair(25.7439, 89.2752),
-            "ময়মনসিংহ" to Pair(24.7471, 90.4203)
+            "ময়মনসিংহ" to Pair(24.7471, 90.4203),
+            "কুমিল্লা" to Pair(23.4682, 91.1782),
+            "নোয়াখালী" to Pair(22.8724, 91.0973),
+            "বগুড়া" to Pair(24.8481, 89.3730),
+            "যশোর" to Pair(23.1664, 89.2081),
+            "দিনাজপুর" to Pair(25.6217, 88.6354),
+            "পাবনা" to Pair(24.0064, 89.2384),
+            "কুষ্টিয়া" to Pair(23.9015, 89.1206),
+            "ফরিদপুর" to Pair(23.6061, 89.8406),
+            "কক্সবাজার" to Pair(21.4272, 91.9701),
+            "টাঙ্গাইল" to Pair(24.2513, 89.9167),
+            "নরসিংদী" to Pair(23.9229, 90.7177),
+            "নারায়ণগঞ্জ" to Pair(23.6238, 90.5000),
+            "গাজীপুর" to Pair(23.9999, 90.4203),
+            "ফেনী" to Pair(23.0159, 91.3976),
+            "ব্রাহ্মণবাড়িয়া" to Pair(23.9571, 91.1119),
+            "চাঁদপুর" to Pair(23.2321, 90.6631),
+            "সাতক্ষীরা" to Pair(22.7185, 89.0705),
+            "বাগেরহাট" to Pair(22.6516, 89.7859),
+            "গোপালগঞ্জ" to Pair(23.0050, 89.8267),
+            "সিরাজগঞ্জ" to Pair(24.4577, 89.7080),
+            "জামালপুর" to Pair(24.9375, 89.9375),
+            "নেত্রকোনা" to Pair(24.8705, 90.7276),
+            "শেরপুর" to Pair(25.0189, 90.0175),
+            "পটুয়াখালী" to Pair(22.3597, 90.3297),
+            "ভোলা" to Pair(22.6859, 90.6483),
+            "বরগুনা" to Pair(22.1591, 90.1121),
+            "পিরোজপুর" to Pair(22.5791, 89.9751),
+            "ঝালকাঠি" to Pair(22.6417, 90.1983),
+            "হবিগঞ্জ" to Pair(24.3749, 91.4132),
+            "মৌলভীবাজার" to Pair(24.4829, 91.7685),
+            "সুনামগঞ্জ" to Pair(25.0657, 91.3950),
+            "কুড়িগ্রাম" to Pair(25.8072, 89.6295),
+            "লালমনিরহাট" to Pair(25.9100, 89.4400),
+            "নীলফামারী" to Pair(25.9310, 88.8551),
+            "গাইবান্ধা" to Pair(25.3283, 89.5317),
+            "পঞ্চগড়" to Pair(26.3333, 88.5583),
+            "ঠাকুরগাঁও" to Pair(26.0333, 88.4667),
+            "নাটোর" to Pair(24.4102, 89.0076),
+            "নওগাঁ" to Pair(24.7936, 88.9318),
+            "জয়পুরহাট" to Pair(25.0990, 89.0238),
+            "চাঁপাইনবাবগঞ্জ" to Pair(24.5965, 88.2711),
+            "মেহেরপুর" to Pair(23.7622, 88.6318),
+            "চুয়াডাঙ্গা" to Pair(23.6401, 88.8418),
+            "ঝিনাইদহ" to Pair(23.5424, 89.1726),
+            "মাগুরা" to Pair(23.4850, 89.4136),
+            "নড়াইল" to Pair(23.1725, 89.5126),
+            "রাজবাড়ী" to Pair(23.7574, 89.6521),
+            "শরীয়তপুর" to Pair(23.2423, 90.3412),
+            "মাদারীপুর" to Pair(23.1641, 90.1896),
+            "মুন্সীগঞ্জ" to Pair(23.5422, 90.5305),
+            "মানিকগঞ্জ" to Pair(23.8617, 90.0003),
+            "রাঙ্গামাটি" to Pair(22.7324, 92.2446),
+            "খাগড়াছড়ি" to Pair(23.1192, 91.9849),
+            "বান্দরবান" to Pair(22.1953, 92.2184)
         )
         var closestCity = "ঢাকা"
         var minDistance = Double.MAX_VALUE
@@ -427,13 +525,9 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
     fun startLocationTracking(activityContext: Context? = null) {
         val useCtx = activityContext ?: context
 
-        // Always trigger an initial fast load of IP-based location and weather!
-        // This ensures a rapid response even if GPS takes time to lock,
-        // or if the user is running the app in an environment where physical GPS is unavailable.
-        fetchIpLocationAndWeather(useCtx)
-
         // Bypassing physical GPS/Network provider registration on emulators prevents AppOps MONITOR_LOCATION or GPS errors
         if (isEmulator()) {
+            fetchIpLocationAndWeather(useCtx)
             return
         }
 
@@ -448,119 +542,106 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
         if (!hasFine && !hasCoarse) {
+            // Permission missing -> fallback to IP-Location
+            fetchIpLocationAndWeather(useCtx)
             return
         }
 
-        val locationManager = useCtx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager ?: return
-        
-        // Stop previous if any
-        stopLocationTracking(useCtx)
-
-        val listener = object : android.location.LocationListener {
-            override fun onLocationChanged(location: android.location.Location) {
-                fetchWeather(location.latitude, location.longitude, contextOverride = useCtx)
-            }
-            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
-            override fun onProviderEnabled(provider: String) {
-                try {
-                    val lastKnown = locationManager.getLastKnownLocation(provider)
-                    if (lastKnown != null) {
-                        fetchWeather(lastKnown.latitude, lastKnown.longitude, contextOverride = useCtx)
-                    }
-                } catch (e: SecurityException) {
-                    e.printStackTrace()
-                }
-            }
-            override fun onProviderDisabled(provider: String) {}
-        }
-        locationListener = listener
-
         try {
-            // Check best last-known location across active providers
-            var bestLocation: android.location.Location? = null
-            try {
-                val providers = locationManager.getProviders(true)
-                if (providers != null) {
-                    for (prov in providers) {
-                        try {
-                            val loc = locationManager.getLastKnownLocation(prov)
-                            if (loc != null) {
-                                if (bestLocation == null || loc.accuracy < bestLocation.accuracy) {
-                                    bestLocation = loc
-                                }
-                            }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
+            val fusedLocationClient = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(useCtx)
+            
+            // Stop previous if any
+            stopLocationTracking(useCtx)
+
+            fusedLocationClient.lastLocation
+                .addOnSuccessListener { location: android.location.Location? ->
+                    if (location != null) {
+                        fetchWeather(location.latitude, location.longitude, contextOverride = useCtx)
+                        requestFusedLocationUpdates(fusedLocationClient, useCtx)
+                    } else {
+                        // Request active updates, if those also fail/timeout, we will run IP fallback as a safety
+                        requestFusedLocationUpdates(fusedLocationClient, useCtx, fallbackToIpOnFailure = true)
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            bestLocation?.let {
-                fetchWeather(it.latitude, it.longitude, contextOverride = useCtx)
-            }
-
-            // Register location updates with separate, isolated try-catch blocks per provider.
-            // This prevents AppOps rejections or disabled hardware provider errors from crashing the app or stopping other providers.
-            try {
-                if (locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
-                    locationManager.requestLocationUpdates(
-                        android.location.LocationManager.NETWORK_PROVIDER,
-                        15000L,
-                        10f,
-                        listener
-                    )
+                .addOnFailureListener {
+                    // Fallback to IP-Location
+                    fetchIpLocationAndWeather(useCtx)
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            try {
-                if (locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
-                    locationManager.requestLocationUpdates(
-                        android.location.LocationManager.GPS_PROVIDER,
-                        15000L,
-                        10f,
-                        listener
-                    )
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            try {
-                val providers = locationManager.getProviders(true)
-                if (providers != null && providers.contains(android.location.LocationManager.PASSIVE_PROVIDER)) {
-                    locationManager.requestLocationUpdates(
-                        android.location.LocationManager.PASSIVE_PROVIDER,
-                        15000L,
-                        10f,
-                        listener
-                    )
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        } catch (e: SecurityException) {
-            e.printStackTrace()
         } catch (e: Exception) {
             e.printStackTrace()
+            fetchIpLocationAndWeather(useCtx)
+        }
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun requestFusedLocationUpdates(
+        client: com.google.android.gms.location.FusedLocationProviderClient,
+        useCtx: Context,
+        fallbackToIpOnFailure: Boolean = false
+    ) {
+        try {
+            val locationRequest = com.google.android.gms.location.LocationRequest.Builder(
+                com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY,
+                15000L
+            ).apply {
+                setMinUpdateIntervalMillis(10000L)
+                setMinUpdateDistanceMeters(10f)
+            }.build()
+
+            var receivedUpdate = false
+
+            val callback = object : com.google.android.gms.location.LocationCallback() {
+                override fun onLocationResult(locationResult: com.google.android.gms.location.LocationResult) {
+                    val lastLoc = locationResult.lastLocation
+                    if (lastLoc != null) {
+                        receivedUpdate = true
+                        fetchWeather(lastLoc.latitude, lastLoc.longitude, contextOverride = useCtx)
+                    }
+                }
+            }
+
+            locationCallback = callback
+            fusedClientRef = client
+
+            client.requestLocationUpdates(
+                locationRequest,
+                callback,
+                android.os.Looper.getMainLooper()
+            ).addOnFailureListener {
+                if (fallbackToIpOnFailure && !receivedUpdate) {
+                    fetchIpLocationAndWeather(useCtx)
+                }
+            }
+
+            // After a 5-second timeout, if we haven't received an update, fallback to IP-Location if requested
+            if (fallbackToIpOnFailure) {
+                viewModelScope.launch {
+                    kotlinx.coroutines.delay(5000)
+                    if (!receivedUpdate) {
+                        fetchIpLocationAndWeather(useCtx)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            if (fallbackToIpOnFailure) {
+                fetchIpLocationAndWeather(useCtx)
+            }
         }
     }
 
     fun stopLocationTracking(activityContext: Context? = null) {
         val useCtx = activityContext ?: context
-        locationListener?.let { listener ->
-            val locationManager = useCtx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
-            try {
-                locationManager?.removeUpdates(listener)
-            } catch (e: Exception) {
-                e.printStackTrace()
+        try {
+            val client = fusedClientRef ?: com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(useCtx)
+            locationCallback?.let { callback ->
+                client.removeLocationUpdates(callback)
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        locationListener = null
+        locationCallback = null
+        fusedClientRef = null
     }
 
     fun fetchWeather(latitude: Double, longitude: Double, cityFallback: String? = null, contextOverride: Context? = null) {
@@ -595,8 +676,8 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                 }
                 liveLocationName.value = cityName
 
-                // Fetch weather from Open-Meteo
-                val url = "https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current_weather=true&daily=temperature_2m_max,weathercode&timezone=auto"
+                // Fetch weather from Open-Meteo using current parameters
+                val url = "https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto"
                 val client = OkHttpClient()
                 val request = Request.Builder().url(url).build()
                 client.newCall(request).execute().use { response ->
@@ -604,19 +685,21 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                         val body = response.body?.string()
                         if (body != null) {
                             val json = JSONObject(body)
-                            if (json.has("current_weather")) {
-                                val current = json.getJSONObject("current_weather")
-                                val temp = current.getDouble("temperature")
-                                val code = current.getInt("weathercode")
+                            if (json.has("current")) {
+                                val current = json.getJSONObject("current")
+                                val temp = current.getDouble("temperature_2m")
+                                val code = current.getInt("weather_code")
+                                val isDay = current.optInt("is_day", 1)
                                 val tempString = "${temp.toInt().toBangla()}°সে."
                                 liveTemperature.value = tempString
                                 liveWeatherCode.value = code
+                                liveIsDay.value = isDay
                             }
                             if (json.has("daily")) {
                                 val daily = json.getJSONObject("daily")
-                                if (daily.has("temperature_2m_max") && daily.has("weathercode")) {
+                                if (daily.has("temperature_2m_max") && daily.has("weather_code")) {
                                     val tempsArr = daily.getJSONArray("temperature_2m_max")
-                                    val codesArr = daily.getJSONArray("weathercode")
+                                    val codesArr = daily.getJSONArray("weather_code")
                                     val newTemps = mutableListOf<String>()
                                     val newCodes = mutableListOf<Int>()
                                     for (i in 0 until minOf(7, tempsArr.length())) {
@@ -635,6 +718,7 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                                 .putString("LIVE_LOCATION_NAME", liveLocationName.value)
                                 .putString("LIVE_TEMPERATURE", liveTemperature.value)
                                 .putInt("LIVE_WEATHER_CODE", liveWeatherCode.value)
+                                .putInt("LIVE_IS_DAY", liveIsDay.value)
                                 .putString("LIVE_FORECAST_TEMPS", liveForecastTemps.value.joinToString(","))
                                 .putString("LIVE_FORECAST_CODES", liveForecastCodes.value.joinToString(","))
                                 .apply()
@@ -9633,10 +9717,28 @@ fun getWeatherIconAndColor(code: Int, isNight: Boolean): Pair<androidx.compose.u
         45, 48 -> { // Fog
             Icons.Default.Cloud to Color(0xFF94A3B8)
         }
-        51, 53, 55, 80, 81, 82 -> { // Drizzle, rain showers
+        51, 53, 55 -> { // Drizzle (light, moderate, dense)
             Icons.Default.Grain to Color(0xFF60A5FA)
         }
-        61, 63, 65, 95, 96, 99 -> { // Rain, Thunderstorm
+        56, 57 -> { // Freezing drizzle -> map to standard drizzle for Bangladesh (no ice/snow)
+            Icons.Default.Grain to Color(0xFF60A5FA)
+        }
+        61, 63, 65 -> { // Rain (slight, moderate, heavy intensity)
+            Icons.Default.Grain to Color(0xFF3B82F6)
+        }
+        66, 67 -> { // Freezing rain -> map to standard rain for Bangladesh (no ice/snow)
+            Icons.Default.Grain to Color(0xFF3B82F6)
+        }
+        71, 73, 75, 77 -> { // Snow fall / grains -> map to cloudy overcast for Bangladesh (no ice/snow)
+            Icons.Default.Cloud to Color(0xFFCBD5E1)
+        }
+        80, 81, 82 -> { // Rain showers
+            Icons.Default.Grain to Color(0xFF60A5FA)
+        }
+        85, 86 -> { // Snow showers -> map to standard rain showers for Bangladesh (no ice/snow)
+            Icons.Default.Grain to Color(0xFF60A5FA)
+        }
+        95, 96, 99 -> { // Thunderstorm
             Icons.Default.Thunderstorm to Color(0xFF94A3B8)
         }
         else -> {
@@ -9674,6 +9776,7 @@ fun DashboardHomeScreen(
     val liveForecastTempsVal by viewModel.liveForecastTemps.collectAsStateWithLifecycle()
     val liveForecastCodesVal by viewModel.liveForecastCodes.collectAsStateWithLifecycle()
     val isFetchingWeatherVal by viewModel.isFetchingWeather.collectAsStateWithLifecycle()
+    val liveIsDayVal by viewModel.liveIsDay.collectAsStateWithLifecycle()
 
     val locationPermissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -9725,10 +9828,12 @@ fun DashboardHomeScreen(
     val banglaDate = sdfDate.format(Date()).toBanglaDigits()
 
     // THREE-STATE UI LOGIC State Handler:
-    // This dynamically determines the state based on the current system time (Day: 6 AM to 6 PM, Night otherwise)
+    // This dynamically determines the state based on Open-Meteo's 'is_day' parameter with a system-time fallback,
     // while allowing the user to tap on the dashboard to cycle and preview DAY, NIGHT, and STORMY_RAIN modes!
-    val currentHour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
-    val isNight = currentHour !in 6..17
+    val isNight = if (liveIsDayVal == 0) true else if (liveIsDayVal == 1) false else {
+        val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        currentHour !in 6..17
+    }
     val (liveWeatherIcon, liveWeatherTint) = getWeatherIconAndColor(liveWeatherCodeVal, isNight)
 
     var manualUiState by remember { mutableStateOf<HomeUiState?>(null) }
