@@ -10039,9 +10039,11 @@ fun ImageStyleWeatherDashboard(
                 .fillMaxWidth()
                 .padding(10.dp)
         ) {
-            // Header Row: Clock & Date Left, Location & Dynamic Temp Right
+            // Header Row: Clock & Date Left (under left rainbow cloud), Location & Dynamic Temp Right (under right rainbow cloud)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 82.dp, start = 4.dp, end = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
@@ -10981,52 +10983,53 @@ fun DashboardHomeScreen(
                     center = Offset(sunX - sunRadius * 0.35f, sunY - sunRadius * 0.35f)
                 )
 
-                // 2. ARCHING VIBRANT MULTI-COLOR RAINBOW
-                val rainbowStart = Offset(width * 0.14f, height * 0.17f)
-                val rainbowEnd = Offset(width * 0.84f, height * 0.17f)
-                val rainbowControlY = height * 0.012f
+                // 2. ARCHING VIBRANT MULTI-COLOR RAINBOW (Thick & Vibrant)
+                val rainbowStart = Offset(width * 0.12f, height * 0.17f)
+                val rainbowEnd = Offset(width * 0.88f, height * 0.17f)
+                val rainbowControlY = height * 0.005f
 
                 val bandColors = listOf(
-                    Color(0xFFDC2626), // Deep Red
-                    Color(0xFFEA580C), // Orange
-                    Color(0xFFFACC15), // Yellow
-                    Color(0xFF16A34A), // Green
-                    Color(0xFF0284C7), // Cyan Blue
-                    Color(0xFF9333EA)  // Purple Violet
+                    Color(0xFFEF4444), // Vibrant Red
+                    Color(0xFFF97316), // Bright Orange
+                    Color(0xFFFACC15), // Golden Yellow
+                    Color(0xFF22C55E), // Lush Green
+                    Color(0xFF06B6D4), // Cyan
+                    Color(0xFF3B82F6), // Blue
+                    Color(0xFFA855F7)  // Purple
                 )
 
-                val bandStrokeWidth = 4.0.dp.toPx()
+                val bandStrokeWidth = 7.0.dp.toPx()
 
                 bandColors.forEachIndexed { index, color ->
-                    val offset = index * bandStrokeWidth * 0.95f
+                    val offset = index * bandStrokeWidth * 0.90f
                     val bandPath = Path().apply {
-                        moveTo(rainbowStart.x, rainbowStart.y - offset * 0.25f)
+                        moveTo(rainbowStart.x, rainbowStart.y - offset * 0.20f)
                         quadraticTo(
-                            width * 0.49f,
+                            width * 0.50f,
                             rainbowControlY - offset,
                             rainbowEnd.x,
-                            rainbowEnd.y - offset * 0.25f
+                            rainbowEnd.y - offset * 0.20f
                         )
                     }
                     drawPath(
                         path = bandPath,
-                        color = color.copy(alpha = 0.95f),
+                        color = color.copy(alpha = 0.96f),
                         style = Stroke(width = bandStrokeWidth, cap = StrokeCap.Round)
                     )
                 }
 
                 // 3. FLUFFY WHITE CLOUDS AT RAINBOW BASES (Left & Right)
                 val cloudBases = listOf(
-                    Offset(width * 0.14f, height * 0.17f) to 1.15f,
-                    Offset(width * 0.84f, height * 0.17f) to 1.25f
+                    Offset(width * 0.12f, height * 0.17f) to 1.25f,
+                    Offset(width * 0.88f, height * 0.17f) to 1.35f
                 )
 
                 cloudBases.forEach { (pos, scale) ->
                     val cx = pos.x
                     val cy = pos.y
-                    val r1 = 23.dp.toPx() * scale
-                    val r2 = 18.dp.toPx() * scale
-                    val r3 = 14.dp.toPx() * scale
+                    val r1 = 24.dp.toPx() * scale
+                    val r2 = 19.dp.toPx() * scale
+                    val r3 = 15.dp.toPx() * scale
 
                     // Soft Cyan Base Shadow
                     drawRoundRect(
@@ -11053,11 +11056,11 @@ fun DashboardHomeScreen(
                         val flapAngle = wingFlapProgress * 2.0 * Math.PI
                         val flapOffset = Math.sin(flapAngle).toFloat()
                         val birdOffsets = listOf(
-                            Triple(0.00f, 0.10f, 0.85f),
-                            Triple(0.07f, 0.08f, 0.65f),
-                            Triple(0.14f, 0.13f, 0.75f),
-                            Triple(0.22f, 0.09f, 0.55f),
-                            Triple(0.29f, 0.14f, 0.80f)
+                            Triple(0.00f, 0.08f, 0.85f), // 1 high bird
+                            Triple(0.08f, 0.22f, 0.65f), // Birds flying below rainbow
+                            Triple(0.16f, 0.26f, 0.75f),
+                            Triple(0.24f, 0.20f, 0.55f),
+                            Triple(0.32f, 0.28f, 0.80f)
                         )
                         birdOffsets.forEach { (xOffset, yRatio, scale) ->
                             val rawX = (skyProgress + xOffset) % 1.0f
@@ -11072,17 +11075,17 @@ fun DashboardHomeScreen(
                             }
                             drawPath(
                                 path = birdPath,
-                                color = Color.White.copy(alpha = 0.80f),
+                                color = Color.White.copy(alpha = 0.82f),
                                 style = Stroke(width = 1.8.dp.toPx() * scale, cap = StrokeCap.Round)
                             )
                         }
                     }
-                    currentHour in 12..15 -> { // AFTERNOON (দুপুর 12 PM - 4 PM): Scattered Floating Clouds drifting across sky
+                    currentHour in 12..15 -> { // AFTERNOON (দুপুর 12 PM - 4 PM): Scattered Floating Clouds (1 high, most below rainbow)
                         val clouds = listOf(
-                            Triple(0.00f, 0.08f, 1.10f),
-                            Triple(0.30f, 0.15f, 0.85f),
-                            Triple(0.58f, 0.06f, 1.25f),
-                            Triple(0.82f, 0.18f, 0.75f)
+                            Triple(0.00f, 0.07f, 0.90f), // High cloud above rainbow
+                            Triple(0.25f, 0.22f, 1.15f), // Cloud floating below rainbow
+                            Triple(0.52f, 0.28f, 0.85f), // Cloud floating below rainbow
+                            Triple(0.78f, 0.24f, 1.25f)  // Cloud floating below rainbow
                         )
 
                         clouds.forEach { (xOffset, yRatio, scale) ->
