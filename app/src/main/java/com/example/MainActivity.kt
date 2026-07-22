@@ -10362,6 +10362,55 @@ fun ImageStyleWeatherDashboard(
                 .fillMaxWidth()
                 .padding(10.dp)
         ) {
+            // Dynamic Time-of-Day & Rain Alert Banner
+            val reminderData = remember(currentTimeMillis, activeState) {
+                val cal = java.util.Calendar.getInstance()
+                val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                if (activeState == HomeUiState.STORMY_RAIN) {
+                    ReminderInfo(
+                        icon = Icons.Default.WaterDrop,
+                        title = "বৃষ্টির সতর্কতা 🌧️",
+                        message = "বাহিরে বর্ষণমুখর আবহাওয়া! বের হলে ছাতা সাথে রাখুন এবং নিরাপদে থাকুন। ☂️",
+                        bgColor = Color.Transparent,
+                        borderColor = Color(0xFF38BDF8).copy(alpha = 0.50f),
+                        isWarning = true
+                    )
+                } else when (hour) {
+                    in 5..11 -> ReminderInfo(
+                        icon = Icons.Default.WbSunny,
+                        title = "সকালের রিমাইন্ডার 🌅",
+                        message = "শুভ সকাল! নতুন দিনের আয়-ব্যয়ের হিসাব সময়মতো লিখে রাখুন।",
+                        bgColor = Color.Transparent,
+                        borderColor = Color(0xFFFBBF24).copy(alpha = 0.40f),
+                        isWarning = false
+                    )
+                    in 12..16 -> ReminderInfo(
+                        icon = Icons.Default.LightMode,
+                        title = "দুপুরের রিমাইন্ডার ☀️",
+                        message = "শুভ দুপুর! দুপুরের খাবারের খরচ ও প্রয়োজনীয় কেনাকাটার হিসাব যোগ করুন।",
+                        bgColor = Color.Transparent,
+                        borderColor = Color(0xFF38BDF8).copy(alpha = 0.40f),
+                        isWarning = false
+                    )
+                    in 17..19 -> ReminderInfo(
+                        icon = Icons.Default.NightsStay,
+                        title = "সংধ্যার রিমাইন্ডার 🌆",
+                        message = "শুভ সন্ধ্যা! সারাদিনের বেচা-কেনার হিসাবটি আরেকবার মিলিয়ে নিন।",
+                        bgColor = Color.Transparent,
+                        borderColor = Color(0xFFFB923C).copy(alpha = 0.40f),
+                        isWarning = false
+                    )
+                    else -> ReminderInfo(
+                        icon = Icons.Default.Bedtime,
+                        title = "রাতের রিমাইন্ডার 🌙",
+                        message = "শুভ রাত্রি! আজকের দিনের মোট আয়-ব্যয়ের হিসাব সম্পন্ন করে নিশ্চিন্তে ঘুমাতে যান।",
+                        bgColor = Color.Transparent,
+                        borderColor = Color(0xFF818CF8).copy(alpha = 0.40f),
+                        isWarning = false
+                    )
+                }
+            }
+
             // Header Row: Clock & Date Left (under left rainbow cloud), Location & Dynamic Temp Right (under right rainbow cloud)
             Row(
                 modifier = Modifier
@@ -10370,7 +10419,7 @@ fun ImageStyleWeatherDashboard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                // Left: Live Clock with Seconds & Date underneath
+                // Left Column: Live Clock with Seconds, Date & Day
                 Column {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -10393,15 +10442,15 @@ fun ImageStyleWeatherDashboard(
                         text = liveDateStr,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = Color.White.copy(alpha = 0.90f),
                         modifier = Modifier.padding(start = 20.dp, top = 2.dp)
                     )
                 }
 
-                // Right: Location/Refresh Pill and Temperature beneath
+                // Right Column: Location/Refresh Pill and Temperature beneath
                 Column(
                     horizontalAlignment = Alignment.End,
-                    modifier = Modifier.weight(1f, fill = false).padding(start = 6.dp)
+                    modifier = Modifier.padding(start = 6.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -10470,123 +10519,66 @@ fun ImageStyleWeatherDashboard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Dynamic Time-of-Day & Rain Alert Banner (Right under Clock, Date & Day)
-            val reminderData = remember(currentTimeMillis, activeState) {
-                val cal = java.util.Calendar.getInstance()
-                val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
-                if (activeState == HomeUiState.STORMY_RAIN) {
-                    ReminderInfo(
-                        icon = Icons.Default.WaterDrop,
-                        title = "বৃষ্টির সতর্কতা 🌧️",
-                        message = "বাহিরে বর্ষণমুখর আবহাওয়া! বের হলে ছাতা সাথে রাখুন এবং নিরাপদে থাকুন। ☂️",
-                        bgColor = Color(0xFF0369A1).copy(alpha = 0.55f),
-                        borderColor = Color(0xFF38BDF8).copy(alpha = 0.85f),
-                        isWarning = true
-                    )
-                } else when (hour) {
-                    in 5..11 -> ReminderInfo(
-                        icon = Icons.Default.WbSunny,
-                        title = "সকালের রিমাইন্ডার 🌅",
-                        message = "শুভ সকাল! নতুন দিনের আয়-ব্যয়ের হিসাব সময়মতো লিখে রাখুন।",
-                        bgColor = Color(0xFFB45309).copy(alpha = 0.45f),
-                        borderColor = Color(0xFFFBBF24).copy(alpha = 0.80f),
-                        isWarning = false
-                    )
-                    in 12..16 -> ReminderInfo(
-                        icon = Icons.Default.LightMode,
-                        title = "দুপুরের রিমাইন্ডার ☀️",
-                        message = "শুভ দুপুর! দুপুরের খাবারের খরচ ও প্রয়োজনীয় কেনাকাটার হিসাব যোগ করুন।",
-                        bgColor = Color(0xFF0284C7).copy(alpha = 0.45f),
-                        borderColor = Color(0xFF38BDF8).copy(alpha = 0.80f),
-                        isWarning = false
-                    )
-                    in 17..19 -> ReminderInfo(
-                        icon = Icons.Default.NightsStay,
-                        title = "সংধ্যার রিমাইন্ডার 🌆",
-                        message = "শুভ সন্ধ্যা! সারাদিনের বেচা-কেনার হিসাবটি আরেকবার মিলিয়ে নিন।",
-                        bgColor = Color(0xFFC2410C).copy(alpha = 0.45f),
-                        borderColor = Color(0xFFFB923C).copy(alpha = 0.80f),
-                        isWarning = false
-                    )
-                    else -> ReminderInfo(
-                        icon = Icons.Default.Bedtime,
-                        title = "রাতের রিমাইন্ডার 🌙",
-                        message = "শুভ রাত্রি! আজকের দিনের মোট আয়-ব্যয়ের হিসাব সম্পন্ন করে নিশ্চিন্তে ঘুমাতে যান।",
-                        bgColor = Color(0xFF3730A3).copy(alpha = 0.50f),
-                        borderColor = Color(0xFF818CF8).copy(alpha = 0.80f),
-                        isWarning = false
-                    )
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = reminderData.bgColor,
-                border = BorderStroke(1.2.dp, reminderData.borderColor),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 2.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .background(
-                                if (reminderData.isWarning) Color(0xFF38BDF8).copy(alpha = 0.35f)
-                                else Color.White.copy(alpha = 0.20f),
-                                CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = reminderData.icon,
-                            contentDescription = reminderData.title,
-                            tint = Color.White,
-                            modifier = Modifier.size(17.dp)
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = reminderData.title,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = reminderData.message,
-                            fontSize = 10.8.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White.copy(alpha = 0.95f),
-                            lineHeight = 14.5.sp
-                        )
-                    }
-                }
-            }
-
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Arc Curve Section (Wider High Arc with Moon lifted higher up)
+            // Compact Transparent Reminder Row right under Header Row (No background, adaptive text color with shadow)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val textColor = if (reminderData.isWarning) Color(0xFF38BDF8)
+                else {
+                    val cal = java.util.Calendar.getInstance()
+                    when (cal.get(java.util.Calendar.HOUR_OF_DAY)) {
+                        in 5..11 -> Color(0xFFFDE047) // Golden morning
+                        in 12..16 -> Color(0xFF38BDF8) // Sky blue noon
+                        in 17..19 -> Color(0xFFFB923C) // Warm orange evening
+                        else -> Color(0xFFC7D2FE) // Soft lavender night
+                    }
+                }
+
+                Icon(
+                    imageVector = reminderData.icon,
+                    contentDescription = null,
+                    tint = textColor,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = reminderData.message,
+                    fontSize = 11.2.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor,
+                    style = androidx.compose.ui.text.TextStyle(
+                        shadow = androidx.compose.ui.graphics.Shadow(
+                            color = Color.Black.copy(alpha = 0.92f),
+                            offset = androidx.compose.ui.geometry.Offset(1f, 1.5f),
+                            blurRadius = 6f
+                        )
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Arc Curve Section (Standard celestial arch height)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(150.dp)
+                    .height(125.dp)
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
 
                     val startX = w * 0.03f
-                    val startY = h * 0.90f
+                    val startY = h * 0.85f
                     val endX = w * 0.97f
-                    val endY = h * 0.90f
+                    val endY = h * 0.85f
                     val controlX = w * 0.5f
-                    val controlY = h * -0.65f // High parabola lifting moon higher up into sky
+                    val controlY = h * -0.20f // High parabola lifting moon higher up into sky
 
                     val arcPath = androidx.compose.ui.graphics.Path().apply {
                         moveTo(startX, startY)
@@ -11685,10 +11677,10 @@ fun DashboardHomeScreen(
             .background(bgBrush)
     ) {
         if (activeState == HomeUiState.STORMY_RAIN) {
-            // [SCENARIO: STORMY RAIN MODE] User-Provided Background, Moving Road, Pedaling Cyclist & Multi-Directional Electric Spark Lightning
+            // [SCENARIO: STORMY RAIN MODE] User-Provided Photorealistic Dark Stormy Sky Background, Falling Rain Drops & Multi-Directional Electric Spark Lightning
             Image(
-                painter = painterResource(id = R.drawable.img_rain_cyclist),
-                contentDescription = "Rain Cyclist Background",
+                painter = painterResource(id = R.drawable.img_stormy_sky),
+                contentDescription = "Stormy Sky Background",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
@@ -11697,147 +11689,7 @@ fun DashboardHomeScreen(
                 val width = size.width
                 val height = size.height
 
-                // 1. MOVING ROAD DASHES & REFLECTIONS ("রাস্তা টা এমন ভাবে চলে যেনো মনে হচ্ছে সাইকেল চলছে")
-                val roadY = height * 0.82f
-                val dashWidth = 36.dp.toPx()
-                val dashGap = 32.dp.toPx()
-                val dashPeriod = dashWidth + dashGap
-                val roadOffset = (cycleAngle / 360f) * dashPeriod
-
-                var dashX = -dashPeriod + (roadOffset % dashPeriod)
-                while (dashX < width + dashPeriod) {
-                    drawLine(
-                        color = Color(0xFF818CF8).copy(alpha = 0.55f),
-                        start = Offset(dashX, roadY + 20.dp.toPx()),
-                        end = Offset(dashX + dashWidth, roadY + 20.dp.toPx()),
-                        strokeWidth = 3.dp.toPx(),
-                        cap = StrokeCap.Round
-                    )
-                    dashX += dashPeriod
-                }
-
-                // Wet puddle reflections scrolling on road
-                val puddleX1 = (width * 0.25f - roadOffset * 0.9f) % width
-                val puddleX2 = (width * 0.72f - roadOffset * 0.9f) % width
-                drawOval(
-                    color = Color(0xFF38BDF8).copy(alpha = 0.22f),
-                    topLeft = Offset(if (puddleX1 < 0) puddleX1 + width else puddleX1, roadY + 8.dp.toPx()),
-                    size = Size(75.dp.toPx(), 16.dp.toPx())
-                )
-                drawOval(
-                    color = Color(0xFF38BDF8).copy(alpha = 0.22f),
-                    topLeft = Offset(if (puddleX2 < 0) puddleX2 + width else puddleX2, roadY + 22.dp.toPx()),
-                    size = Size(90.dp.toPx(), 18.dp.toPx())
-                )
-
-                // 2. CYCLIST, BICYCLE & PEDALING ANIMATION ("সাইকেলের চাকাগুলো চলমান হবে", "সাইকেলের ব্যক্তিটা পেডেল পারছে", "এক জায়গায় থাকবে")
-                val bcX = width * 0.48f
-                val bcY = height * 0.73f
-                val wheelR = 25.dp.toPx()
-                val rearWheelX = bcX - 58.dp.toPx()
-                val frontWheelX = bcX + 58.dp.toPx()
-                val wheelY = bcY + 20.dp.toPx()
-
-                // Wheel 1: Rear Wheel (Spinning Spokes)
-                drawCircle(color = Color(0xFF0F172A), radius = wheelR + 3.dp.toPx(), center = Offset(rearWheelX, wheelY))
-                drawCircle(color = Color(0xFF38BDF8), radius = wheelR, center = Offset(rearWheelX, wheelY), style = Stroke(width = 3.dp.toPx()))
-                drawCircle(color = Color.White, radius = 4.dp.toPx(), center = Offset(rearWheelX, wheelY))
-                for (spoke in 0 until 12) {
-                    val spokeRad = Math.toRadians((cycleAngle + spoke * 30.0)).toFloat()
-                    val sx = rearWheelX + wheelR * Math.cos(spokeRad.toDouble()).toFloat()
-                    val sy = wheelY + wheelR * Math.sin(spokeRad.toDouble()).toFloat()
-                    drawLine(color = Color(0xFF93C5FD).copy(alpha = 0.85f), start = Offset(rearWheelX, wheelY), end = Offset(sx, sy), strokeWidth = 1.2.dp.toPx())
-                }
-
-                // Wheel 2: Front Wheel (Spinning Spokes)
-                drawCircle(color = Color(0xFF0F172A), radius = wheelR + 3.dp.toPx(), center = Offset(frontWheelX, wheelY))
-                drawCircle(color = Color(0xFF38BDF8), radius = wheelR, center = Offset(frontWheelX, wheelY), style = Stroke(width = 3.dp.toPx()))
-                drawCircle(color = Color.White, radius = 4.dp.toPx(), center = Offset(frontWheelX, wheelY))
-                for (spoke in 0 until 12) {
-                    val spokeRad = Math.toRadians((cycleAngle + spoke * 30.0)).toFloat()
-                    val sx = frontWheelX + wheelR * Math.cos(spokeRad.toDouble()).toFloat()
-                    val sy = wheelY + wheelR * Math.sin(spokeRad.toDouble()).toFloat()
-                    drawLine(color = Color(0xFF93C5FD).copy(alpha = 0.85f), start = Offset(frontWheelX, wheelY), end = Offset(sx, sy), strokeWidth = 1.2.dp.toPx())
-                }
-
-                // Orange Bicycle Frame
-                val bbX = bcX - 5.dp.toPx()
-                val bbY = wheelY - 2.dp.toPx()
-                val seatX = bcX - 22.dp.toPx()
-                val seatY = bcY - 22.dp.toPx()
-                val headX = bcX + 40.dp.toPx()
-                val headY = bcY - 20.dp.toPx()
-
-                val frameColor = Color(0xFFF97316)
-                drawLine(frameColor, Offset(rearWheelX, wheelY), Offset(bbX, bbY), 3.5.dp.toPx(), StrokeCap.Round)
-                drawLine(frameColor, Offset(rearWheelX, wheelY), Offset(seatX, seatY), 3.5.dp.toPx(), StrokeCap.Round)
-                drawLine(frameColor, Offset(bbX, bbY), Offset(seatX, seatY), 3.5.dp.toPx(), StrokeCap.Round)
-                drawLine(frameColor, Offset(bbX, bbY), Offset(headX, headY), 3.5.dp.toPx(), StrokeCap.Round)
-                drawLine(frameColor, Offset(seatX, seatY), Offset(headX, headY), 3.5.dp.toPx(), StrokeCap.Round)
-                drawLine(frameColor, Offset(frontWheelX, wheelY), Offset(headX, headY - 8.dp.toPx()), 3.5.dp.toPx(), StrokeCap.Round)
-
-                // Seat & Handlebars
-                drawLine(Color(0xFF0F172A), Offset(seatX - 8.dp.toPx(), seatY - 2.dp.toPx()), Offset(seatX + 8.dp.toPx(), seatY - 2.dp.toPx()), 4.dp.toPx(), StrokeCap.Round)
-                drawLine(Color(0xFF64748B), Offset(headX, headY - 8.dp.toPx()), Offset(headX - 6.dp.toPx(), headY - 20.dp.toPx()), 3.dp.toPx(), StrokeCap.Round)
-
-                // Rotating Pedal Arms
-                val pedalRad = Math.toRadians(cycleAngle.toDouble()).toFloat()
-                val crankLen = 12.dp.toPx()
-                val p1X = bbX + crankLen * Math.cos(pedalRad.toDouble()).toFloat()
-                val p1Y = bbY + crankLen * Math.sin(pedalRad.toDouble()).toFloat()
-                val p2X = bbX - crankLen * Math.cos(pedalRad.toDouble()).toFloat()
-                val p2Y = bbY - crankLen * Math.sin(pedalRad.toDouble()).toFloat()
-
-                drawLine(Color(0xFFCBD5E1), Offset(bbX, bbY), Offset(p1X, p1Y), 3.dp.toPx(), StrokeCap.Round)
-                drawLine(Color(0xFFCBD5E1), Offset(bbX, bbY), Offset(p2X, p2Y), 3.dp.toPx(), StrokeCap.Round)
-                drawCircle(Color(0xFF1E293B), radius = 3.dp.toPx(), center = Offset(p1X, p1Y))
-                drawCircle(Color(0xFF1E293B), radius = 3.dp.toPx(), center = Offset(p2X, p2Y))
-
-                // Rider Body & Pedaling Legs
-                val riderBob = Math.sin(pedalRad.toDouble() * 2.0).toFloat() * 2.dp.toPx()
-                val hipX = seatX
-                val hipY = seatY - 8.dp.toPx() + riderBob
-
-                // Leg 1 (Right Leg)
-                val legColor = Color(0xFF1E293B)
-                val knee1X = (hipX + p1X) / 2f + 7.dp.toPx()
-                val knee1Y = (hipY + p1Y) / 2f - 5.dp.toPx()
-                drawLine(legColor, Offset(hipX, hipY), Offset(knee1X, knee1Y), 4.5.dp.toPx(), StrokeCap.Round)
-                drawLine(legColor, Offset(knee1X, knee1Y), Offset(p1X, p1Y), 4.dp.toPx(), StrokeCap.Round)
-
-                // Leg 2 (Left Leg)
-                val knee2X = (hipX + p2X) / 2f - 5.dp.toPx()
-                val knee2Y = (hipY + p2Y) / 2f - 5.dp.toPx()
-                drawLine(legColor.copy(alpha = 0.75f), Offset(hipX, hipY), Offset(knee2X, knee2Y), 4.5.dp.toPx(), StrokeCap.Round)
-                drawLine(legColor.copy(alpha = 0.75f), Offset(knee2X, knee2Y), Offset(p2X, p2Y), 4.dp.toPx(), StrokeCap.Round)
-
-                // Torso (Pink Shirt)
-                val shoulderX = hipX + 8.dp.toPx()
-                val shoulderY = hipY - 38.dp.toPx()
-                val torsoColor = Color(0xFFEC4899)
-                drawLine(torsoColor, Offset(hipX, hipY), Offset(shoulderX, shoulderY), 11.dp.toPx(), StrokeCap.Round)
-
-                // Head
-                val headCenterX = shoulderX - 2.dp.toPx()
-                val headCenterY = shoulderY - 14.dp.toPx()
-                drawCircle(Color(0xFFFDBA74), radius = 8.5.dp.toPx(), center = Offset(headCenterX, headCenterY))
-                drawArc(Color(0xFF0F172A), startAngle = 180f, sweepAngle = 180f, useCenter = true, topLeft = Offset(headCenterX - 8.5.dp.toPx(), headCenterY - 9.dp.toPx()), size = Size(17.dp.toPx(), 13.dp.toPx()))
-
-                // Arms holding Umbrella
-                val handX = headX - 6.dp.toPx()
-                val handY = headY - 20.dp.toPx()
-                val umbrellaHandX = shoulderX - 6.dp.toPx()
-                val umbrellaHandY = shoulderY - 12.dp.toPx()
-                drawLine(torsoColor, Offset(shoulderX, shoulderY), Offset(handX, handY), 3.5.dp.toPx(), StrokeCap.Round)
-                drawLine(torsoColor, Offset(shoulderX, shoulderY), Offset(umbrellaHandX, umbrellaHandY), 3.5.dp.toPx(), StrokeCap.Round)
-
-                // Umbrella Canopy
-                val umbX = shoulderX - 8.dp.toPx()
-                val umbY = shoulderY - 58.dp.toPx()
-                drawLine(Color(0xFFF59E0B), Offset(umbrellaHandX, umbrellaHandY), Offset(umbX, umbY), 2.5.dp.toPx(), StrokeCap.Round)
-                drawArc(Color(0xFF0F172A), startAngle = 180f, sweepAngle = 180f, useCenter = true, topLeft = Offset(umbX - 38.dp.toPx(), umbY - 28.dp.toPx()), size = Size(76.dp.toPx(), 56.dp.toPx()))
-
-                // 3. FALLING RAIN DROPS OVERLAY ("ছবির বৃষ্টির ফোটা গুলো যেনো বৃষ্টির মত ঝরতে থাকে")
+                // FALLING RAIN DROPS OVERLAY ("ছবির বৃষ্টির ফোটা গুলো যেনো বৃষ্টির মত ঝরতে থাকে")
                 rainDropsList.forEach { drop ->
                     val progress = (rainPhase * drop.speedMult + drop.yOffsetRatio) % 1.0f
                     val startY = progress * (height + 100f) - 50f
@@ -11865,7 +11717,7 @@ fun DashboardHomeScreen(
                 }
             }
 
-            // 4. MULTI-DIRECTIONAL ELECTRIC SPARK LIGHTNING ("একেক বার একেক দিক থেকে চমকাবে")
+            // MULTI-DIRECTIONAL ELECTRIC SPARK LIGHTNING ("একেক বার একেক দিক থেকে চমকাবে")
             if (lightningAlpha > 0.05f) {
                 // Sky Flash Overlay
                 Box(
@@ -11984,35 +11836,6 @@ fun DashboardHomeScreen(
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val width = size.width
                 val height = size.height
-
-                // Glowing High Moon in the Upper Night Sky
-                val moonX = width * 0.82f
-                val moonY = height * 0.075f
-                val moonR = 22.dp.toPx()
-
-                // Multi-layered Moonlight Glow Aura
-                drawCircle(
-                    color = Color(0xFF93C5FD).copy(alpha = 0.20f * starPulse),
-                    radius = moonR * 2.8f,
-                    center = Offset(moonX, moonY)
-                )
-                drawCircle(
-                    color = Color(0xFFE2E8F0).copy(alpha = 0.35f * starPulse),
-                    radius = moonR * 1.6f,
-                    center = Offset(moonX, moonY)
-                )
-                // Base Golden Crescent Moon
-                drawCircle(
-                    color = Color(0xFFFEF08A),
-                    radius = moonR,
-                    center = Offset(moonX, moonY)
-                )
-                // Sky Shadow Overlay forming Crescent Shape
-                drawCircle(
-                    color = Color(0xFF0B1329).copy(alpha = 0.90f),
-                    radius = moonR * 0.92f,
-                    center = Offset(moonX - 8.dp.toPx(), moonY - 3.dp.toPx())
-                )
 
                 // Realistic Sparkling Stars Overlay with 4-Point Sparkle Cross Rays
                 for (i in 0 until 45) {
@@ -14805,20 +14628,39 @@ fun UserProfileAvatar(
     if (!customUriString.isNullOrBlank()) {
         val bitmap = remember(customUriString) {
             try {
-                if (customUriString.startsWith("file://")) {
+                if (!customUriString.startsWith("content://") && !customUriString.startsWith("file://") && !customUriString.startsWith("/")) {
+                    null
+                } else if (customUriString.startsWith("file://")) {
                     val file = File(android.net.Uri.parse(customUriString).path ?: "")
                     if (file.exists()) {
-                        android.graphics.BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                        val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
+                        var sample = 1
+                        while (options.outWidth / sample > 400 || options.outHeight / sample > 400) { sample *= 2 }
+                        val decodeOpt = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                        android.graphics.BitmapFactory.decodeFile(file.absolutePath, decodeOpt)?.asImageBitmap()
                     } else null
                 } else if (customUriString.startsWith("/")) {
                     val file = File(customUriString)
                     if (file.exists()) {
-                        android.graphics.BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                        val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
+                        var sample = 1
+                        while (options.outWidth / sample > 400 || options.outHeight / sample > 400) { sample *= 2 }
+                        val decodeOpt = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                        android.graphics.BitmapFactory.decodeFile(file.absolutePath, decodeOpt)?.asImageBitmap()
                     } else null
                 } else {
                     val uri = android.net.Uri.parse(customUriString)
+                    val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                        android.graphics.BitmapFactory.decodeStream(inputStream)?.asImageBitmap()
+                        android.graphics.BitmapFactory.decodeStream(inputStream, null, options)
+                    }
+                    var sample = 1
+                    while (options.outWidth / sample > 400 || options.outHeight / sample > 400) { sample *= 2 }
+                    val decodeOpt = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        android.graphics.BitmapFactory.decodeStream(inputStream, null, decodeOpt)?.asImageBitmap()
                     }
                 }
             } catch (e: Throwable) {
