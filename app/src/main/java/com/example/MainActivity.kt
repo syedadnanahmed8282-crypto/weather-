@@ -238,6 +238,83 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
 
     // --- LIVE WEATHER AND LOCATION STATES ---
     val liveLocationName = MutableStateFlow(prefs.getString("LIVE_LOCATION_NAME", "ঢাকা, বাংলাদেশ") ?: "ঢাকা, বাংলাদেশ")
+    val liveLatitude = MutableStateFlow<Double>(
+        prefs.getString("SAVED_LAT", "23.8103")?.toDoubleOrNull() ?: 23.8103
+    )
+    val liveLongitude = MutableStateFlow<Double>(
+        prefs.getString("SAVED_LON", "90.4125")?.toDoubleOrNull() ?: 90.4125
+    )
+
+    private fun loadSavedFavoriteLocationsFromPrefs(): List<Triple<String, Double, Double>> {
+        val raw = prefs.getString("USER_SAVED_FAVORITE_LOCATIONS", null) ?: return emptyList()
+        if (raw.isBlank()) return emptyList()
+        val list = mutableListOf<Triple<String, Double, Double>>()
+        val items = raw.split(";;")
+        for (item in items) {
+            val parts = item.split("||")
+            if (parts.size == 3) {
+                val name = parts[0].trim()
+                val lat = parts[1].toDoubleOrNull()
+                val lon = parts[2].toDoubleOrNull()
+                if (name.isNotBlank() && lat != null && lon != null) {
+                    list.add(Triple(name, lat, lon))
+                }
+            }
+        }
+        return list
+    }
+
+    val savedFavoriteLocations = MutableStateFlow<List<Triple<String, Double, Double>>>(
+        loadSavedFavoriteLocationsFromPrefs()
+    )
+
+    private fun persistSavedFavoriteLocations(list: List<Triple<String, Double, Double>>) {
+        val serialized = list.joinToString(";;") { "${it.first}||${it.second}||${it.third}" }
+        prefs.edit().putString("USER_SAVED_FAVORITE_LOCATIONS", serialized).apply()
+        savedFavoriteLocations.value = list
+    }
+
+    fun saveCurrentLocationToFavorites(): Boolean {
+        val name = liveLocationName.value.trim()
+        val lat = liveLatitude.value
+        val lon = liveLongitude.value
+        if (name.isBlank() || lat.isNaN() || lon.isNaN()) return false
+
+        val currentList = savedFavoriteLocations.value.toMutableList()
+        val exists = currentList.any {
+            it.first.equals(name, ignoreCase = true) ||
+            (Math.abs(it.second - lat) < 0.0001 && Math.abs(it.third - lon) < 0.0001)
+        }
+        if (!exists) {
+            currentList.add(0, Triple(name, lat, lon))
+            persistSavedFavoriteLocations(currentList)
+            return true
+        }
+        return false
+    }
+
+    fun addLocationToFavorites(name: String, lat: Double, lon: Double): Boolean {
+        val cleanName = name.trim()
+        val currentList = savedFavoriteLocations.value.toMutableList()
+        val exists = currentList.any {
+            it.first.equals(cleanName, ignoreCase = true) ||
+            (Math.abs(it.second - lat) < 0.0001 && Math.abs(it.third - lon) < 0.0001)
+        }
+        if (!exists) {
+            currentList.add(0, Triple(cleanName, lat, lon))
+            persistSavedFavoriteLocations(currentList)
+            return true
+        }
+        return false
+    }
+
+    fun removeFavoriteLocation(name: String) {
+        val currentList = savedFavoriteLocations.value.filterNot {
+            it.first.equals(name.trim(), ignoreCase = true)
+        }
+        persistSavedFavoriteLocations(currentList)
+    }
+
     val liveTemperature = MutableStateFlow(prefs.getString("LIVE_TEMPERATURE", "৩১°সে.") ?: "৩১°সে.")
     val liveWeatherCode = MutableStateFlow(prefs.getInt("LIVE_WEATHER_CODE", 0))
     val liveForecastTemps = MutableStateFlow(
@@ -761,6 +838,8 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
             .apply()
 
         liveLocationName.value = placeName
+        liveLatitude.value = lat
+        liveLongitude.value = lon
         fetchWeather(lat, lon, cityFallback = placeName)
     }
 
@@ -841,8 +920,44 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         }
     }
 
+    fun parse12hTo24h(time12: String): String {
+        return try {
+            val clean = time12.trim()
+            val sdf12 = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.US)
+            val sdf24 = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+            val parsed = sdf12.parse(clean)
+            if (parsed != null) sdf24.format(parsed) else clean
+        } catch (e: Exception) {
+            try {
+                val clean = time12.trim()
+                val sdf12Alt = java.text.SimpleDateFormat("h:mm a", java.util.Locale.US)
+                val sdf24 = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+                val parsed = sdf12Alt.parse(clean)
+                if (parsed != null) sdf24.format(parsed) else clean
+            } catch (e2: Exception) {
+                time12.replace(" AM", "").replace(" PM", "").trim()
+            }
+        }
+    }
+
+    fun mapWeatherApiConditionCode(apiCode: Int, text: String): Int {
+        val lowerText = text.lowercase(java.util.Locale.US)
+        return when {
+            lowerText.contains("thunder") || lowerText.contains("storm") || apiCode in listOf(1087, 1273, 1276, 1279, 1282) -> 95
+            lowerText.contains("heavy rain") || apiCode in listOf(1192, 1195, 1246) -> 65
+            lowerText.contains("moderate rain") || lowerText.contains("rain shower") || apiCode in listOf(1186, 1189, 1243) -> 63
+            lowerText.contains("rain") || lowerText.contains("drizzle") || lowerText.contains("shower") || lowerText.contains("sleet") || lowerText.contains("ice") || lowerText.contains("snow") || apiCode in listOf(1063, 1150, 1153, 1180, 1183, 1204, 1207, 1210, 1213, 1216, 1219, 1222, 1225, 1237, 1240, 1249, 1252, 1255, 1258, 1261, 1264) -> 61
+            lowerText.contains("fog") || lowerText.contains("mist") || lowerText.contains("haze") || apiCode in listOf(1030, 1135, 1147) -> 45
+            lowerText.contains("overcast") || lowerText.contains("cloud") || apiCode in listOf(1003, 1006, 1009, 1114, 1117) -> 3
+            lowerText.contains("clear") || lowerText.contains("sun") || apiCode == 1000 -> 0
+            else -> 1
+        }
+    }
+
     fun fetchWeather(latitude: Double, longitude: Double, cityFallback: String? = null, contextOverride: Context? = null) {
         val useCtx = contextOverride ?: context
+        liveLatitude.value = latitude
+        liveLongitude.value = longitude
         viewModelScope.launch(Dispatchers.IO) {
             isFetchingWeather.value = true
             try {
@@ -877,152 +992,152 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                         .apply()
                 }
 
-                // AccuWeather Scraper via Jsoup (using coordinate query URL)
-                var accuSuccess = false
-                try {
-                    val accuUrl = "https://www.accuweather.com/en/search-locations?query=$latitude,$longitude"
-                    val doc: org.jsoup.nodes.Document = org.jsoup.Jsoup.connect(accuUrl)
-                        .userAgent("Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36")
-                        .timeout(10000)
-                        .followRedirects(true)
-                        .get()
-
-                    // Parse current temperature element from AccuWeather page
-                    val tempEl = doc.select(".temp, .display-temp, .cur-con-weather-card__temp, .temp-container .temp").firstOrNull()
-                    val condEl = doc.select(".phrase, .cond, .cur-con-weather-card__phrase, .phrase-container .phrase").firstOrNull()
-                    val locEl = doc.select(".header-loc, .location-name, .subnav-pagination div").firstOrNull()
-
-                    if (tempEl != null) {
-                        val scrapedTempText = tempEl.text().trim() // e.g. "32° C" or "32°"
-                        val tempDigits = scrapedTempText.replace("[^0-9]".toRegex(), "")
-                        if (tempDigits.isNotEmpty()) {
-                            val tempVal = tempDigits.toIntOrNull() ?: 30
-                            liveTemperature.value = "${tempVal.toBangla()}°সে."
-                            
-                            if (condEl != null && condEl.text().isNotBlank()) {
-                                val phrase = condEl.text().trim().lowercase()
-                                val matchedCode = when {
-                                    phrase.contains("thunder") || phrase.contains("storm") -> 95
-                                    phrase.contains("rain") || phrase.contains("shower") || phrase.contains("drizzle") -> 61
-                                    phrase.contains("cloud") || phrase.contains("overcast") -> 3
-                                    phrase.contains("fog") || phrase.contains("haze") -> 45
-                                    phrase.contains("sun") || phrase.contains("clear") -> 0
-                                    else -> 1
-                                }
-                                liveWeatherCode.value = matchedCode
-                            }
-                            
-                            // Keep detailed Geocoded location name in liveLocationName
-                            accuSuccess = true
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-
-                // Open-Meteo API enrichment / fallback for full hourly & daily metrics
-                val url = "https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,surface_pressure,wind_speed_10m,is_day&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto"
+                // WeatherAPI.com Network Fetch
+                val weatherApiUrl = "https://api.weatherapi.com/v1/forecast.json?key=b83afa5ae51f461c8a7162850262207&q=$latitude,$longitude&days=3&aqi=no&alerts=no"
                 val client = OkHttpClient()
-                val request = Request.Builder().url(url).build()
+                val request = Request.Builder().url(weatherApiUrl).build()
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val body = response.body?.string()
                         if (body != null) {
                             val json = JSONObject(body)
+
+                            // 1. Current Weather Data
                             if (json.has("current")) {
                                 val current = json.getJSONObject("current")
-                                val temp = current.optDouble("temperature_2m", 30.0)
-                                val code = current.optInt("weather_code", 0)
-                                val isDay = current.optInt("is_day", 1)
-                                val apparentTemp = current.optDouble("apparent_temperature", temp)
-                                val humidity = current.optInt("relative_humidity_2m", 89)
-                                val windSpeed = current.optDouble("wind_speed_10m", 4.0)
-                                val pressure = current.optDouble("surface_pressure", 1006.0)
+                                val tempC = current.optDouble("temp_c", 30.0)
+                                val feelslikeC = current.optDouble("feelslike_c", tempC)
+                                val humidityVal = current.optInt("humidity", 80)
+                                val windKph = current.optDouble("wind_kph", 10.0)
+                                val pressureMb = current.optDouble("pressure_mb", 1010.0)
+                                val isDayVal = current.optInt("is_day", 1)
 
-                                if (!accuSuccess) {
-                                    liveTemperature.value = "${temp.toInt().toBangla()}°সে."
-                                    liveWeatherCode.value = code
+                                var conditionCode = 1000
+                                var conditionText = "Clear"
+                                if (current.has("condition")) {
+                                    val condObj = current.getJSONObject("condition")
+                                    conditionCode = condObj.optInt("code", 1000)
+                                    conditionText = condObj.optString("text", "Clear")
                                 }
-                                liveIsDay.value = isDay
-                                liveRealFeel.value = "${apparentTemp.toInt().toBangla()}°সে."
-                                liveHumidity.value = "${humidity.toBangla()}%"
-                                liveWindSpeed.value = windSpeed.toInt().toBangla()
-                                livePressure.value = "${pressure.toInt().toBangla()} hPa"
+
+                                val internalCode = mapWeatherApiConditionCode(conditionCode, conditionText)
+
+                                liveTemperature.value = "${tempC.toInt().toBangla()}°সে."
+                                liveWeatherCode.value = internalCode
+                                liveIsDay.value = isDayVal
+                                liveRealFeel.value = "${feelslikeC.toInt().toBangla()}°সে."
+                                liveHumidity.value = "${humidityVal.toBangla()}%"
+                                liveWindSpeed.value = windKph.toInt().toBangla()
+                                livePressure.value = "${pressureMb.toInt().toBangla()} hPa"
                             }
-                            if (json.has("daily")) {
-                                val daily = json.getJSONObject("daily")
-                                if (daily.has("temperature_2m_max") && daily.has("weather_code")) {
-                                    val tempsArr = daily.getJSONArray("temperature_2m_max")
-                                    val codesArr = daily.getJSONArray("weather_code")
+
+                            // 2. Forecast Days & Astro (Sunrise / Sunset)
+                            if (json.has("forecast")) {
+                                val forecastObj = json.getJSONObject("forecast")
+                                if (forecastObj.has("forecastday")) {
+                                    val forecastDaysArr = forecastObj.getJSONArray("forecastday")
+
+                                    if (forecastDaysArr.length() > 0) {
+                                        val firstDay = forecastDaysArr.getJSONObject(0)
+                                        if (firstDay.has("astro")) {
+                                            val astro = firstDay.getJSONObject("astro")
+                                            val sr12 = astro.optString("sunrise", "05:22 AM")
+                                            val ss12 = astro.optString("sunset", "06:41 PM")
+                                            val sr24 = parse12hTo24h(sr12)
+                                            val ss24 = parse12hTo24h(ss12)
+                                            liveSunrise.value = sr24.toBanglaDigits()
+                                            liveSunset.value = ss24.toBanglaDigits()
+                                        }
+                                    }
+
                                     val newTemps = mutableListOf<String>()
                                     val newCodes = mutableListOf<Int>()
-                                    for (i in 0 until minOf(7, tempsArr.length())) {
-                                        newTemps.add("${tempsArr.getDouble(i).toInt().toBangla()}°")
-                                        newCodes.add(codesArr.getInt(i))
+
+                                    for (i in 0 until forecastDaysArr.length()) {
+                                        val dayItem = forecastDaysArr.getJSONObject(i)
+                                        val dayObj = dayItem.optJSONObject("day")
+                                        if (dayObj != null) {
+                                            val maxTemp = dayObj.optDouble("maxtemp_c", 30.0)
+                                            var dayCode = 1000
+                                            var dayText = "Clear"
+                                            if (dayObj.has("condition")) {
+                                                val condObj = dayObj.getJSONObject("condition")
+                                                dayCode = condObj.optInt("code", 1000)
+                                                dayText = condObj.optString("text", "Clear")
+                                            }
+                                            newTemps.add("${maxTemp.toInt().toBangla()}°")
+                                            newCodes.add(mapWeatherApiConditionCode(dayCode, dayText))
+                                        }
                                     }
-                                    while (newTemps.size < 7) newTemps.add("৩০°")
-                                    while (newCodes.size < 7) newCodes.add(0)
+
+                                    val lastTemp = newTemps.lastOrNull() ?: "৩০°"
+                                    val lastCode = newCodes.lastOrNull() ?: 0
+                                    while (newTemps.size < 7) {
+                                        newTemps.add(lastTemp)
+                                        newCodes.add(lastCode)
+                                    }
+
                                     liveForecastTemps.value = newTemps
                                     liveForecastCodes.value = newCodes
-                                }
-                                if (daily.has("sunrise") && daily.has("sunset")) {
-                                    val sunriseArr = daily.getJSONArray("sunrise")
-                                    val sunsetArr = daily.getJSONArray("sunset")
-                                    if (sunriseArr.length() > 0 && sunsetArr.length() > 0) {
-                                        val srIso = sunriseArr.getString(0)
-                                        val ssIso = sunsetArr.getString(0)
-                                        val srTime = srIso.substringAfter("T", "05:22")
-                                        val ssTime = ssIso.substringAfter("T", "18:41")
-                                        liveSunrise.value = srTime.toBanglaDigits()
-                                        liveSunset.value = ssTime.toBanglaDigits()
-                                    }
-                                }
-                            }
-                            if (json.has("hourly")) {
-                                val hourly = json.getJSONObject("hourly")
-                                if (hourly.has("time") && hourly.has("temperature_2m") && hourly.has("weather_code")) {
-                                    val timesArr = hourly.getJSONArray("time")
-                                    val tempsArr = hourly.getJSONArray("temperature_2m")
-                                    val codesArr = hourly.getJSONArray("weather_code")
 
-                                    val sdfHour = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:00", java.util.Locale.US)
-                                    val currentHourStr = sdfHour.format(java.util.Date())
-                                    var startIndex = 0
-                                    for (i in 0 until timesArr.length()) {
-                                        if (timesArr.getString(i) >= currentHourStr) {
-                                            startIndex = i
-                                            break
+                                    // 3. Hourly Forecast
+                                    if (forecastDaysArr.length() > 0) {
+                                        val firstDay = forecastDaysArr.getJSONObject(0)
+                                        if (firstDay.has("hour")) {
+                                            val hourArr = firstDay.getJSONArray("hour")
+
+                                            val sdfHour = java.text.SimpleDateFormat("yyyy-MM-dd HH:00", java.util.Locale.US)
+                                            val currentHourStr = sdfHour.format(java.util.Date())
+                                            var startIndex = 0
+                                            for (i in 0 until hourArr.length()) {
+                                                val hObj = hourArr.getJSONObject(i)
+                                                val hTimeStr = hObj.optString("time", "")
+                                                if (hTimeStr >= currentHourStr) {
+                                                    startIndex = i
+                                                    break
+                                                }
+                                            }
+
+                                            val hTimes = mutableListOf<String>()
+                                            val hTemps = mutableListOf<String>()
+                                            val hCodes = mutableListOf<Int>()
+
+                                            val ssBangla = liveSunset.value
+                                            var sunsetInserted = false
+
+                                            for (i in startIndex until minOf(startIndex + 6, hourArr.length())) {
+                                                val hObj = hourArr.getJSONObject(i)
+                                                val hTimeStr = hObj.optString("time", "12:00")
+                                                val hourOnly = hTimeStr.substringAfter(" ", "12:00")
+                                                val hourOnlyBangla = hourOnly.toBanglaDigits()
+
+                                                val hTempC = hObj.optDouble("temp_c", 30.0)
+                                                var hCode = 1000
+                                                var hText = "Clear"
+                                                if (hObj.has("condition")) {
+                                                    val condObj = hObj.getJSONObject("condition")
+                                                    hCode = condObj.optInt("code", 1000)
+                                                    hText = condObj.optString("text", "Clear")
+                                                }
+
+                                                if (!sunsetInserted && ssBangla.isNotEmpty() && hourOnlyBangla > ssBangla) {
+                                                    hTimes.add(ssBangla)
+                                                    hTemps.add("সূর্যাস্ত")
+                                                    hCodes.add(-1)
+                                                    sunsetInserted = true
+                                                }
+
+                                                hTimes.add(hourOnlyBangla)
+                                                hTemps.add("${hTempC.toInt().toBangla()}°সে.")
+                                                hCodes.add(mapWeatherApiConditionCode(hCode, hText))
+                                            }
+
+                                            if (hTimes.isNotEmpty()) {
+                                                liveHourlyTimes.value = hTimes
+                                                liveHourlyTemps.value = hTemps
+                                                liveHourlyCodes.value = hCodes
+                                            }
                                         }
-                                    }
-
-                                    val hTimes = mutableListOf<String>()
-                                    val hTemps = mutableListOf<String>()
-                                    val hCodes = mutableListOf<Int>()
-
-                                    val ssBangla = liveSunset.value
-                                    var sunsetInserted = false
-
-                                    for (i in startIndex until minOf(startIndex + 6, timesArr.length())) {
-                                        val isoTime = timesArr.getString(i)
-                                        val hourOnly = isoTime.substringAfter("T", "12:00")
-                                        val hourOnlyBangla = hourOnly.toBanglaDigits()
-
-                                        if (!sunsetInserted && ssBangla.isNotEmpty() && hourOnlyBangla > ssBangla) {
-                                            hTimes.add(ssBangla)
-                                            hTemps.add("সূর্যাস্ত")
-                                            hCodes.add(-1)
-                                            sunsetInserted = true
-                                        }
-
-                                        hTimes.add(hourOnlyBangla)
-                                        hTemps.add("${tempsArr.getDouble(i).toInt().toBangla()}°সে.")
-                                        hCodes.add(codesArr.getInt(i))
-                                    }
-
-                                    if (hTimes.isNotEmpty()) {
-                                        liveHourlyTimes.value = hTimes
-                                        liveHourlyTemps.value = hTemps
-                                        liveHourlyCodes.value = hCodes
                                     }
                                 }
                             }
@@ -10652,13 +10767,24 @@ fun ImageStyleWeatherDashboard(
 @Composable
 fun LocationSelectionDialog(
     currentLocation: String,
+    savedLocations: List<Triple<String, Double, Double>>,
     onDismiss: () -> Unit,
     onSelectPreset: (name: String, lat: Double, lon: Double) -> Unit,
+    onSaveCurrentLocation: () -> Unit,
+    onRemoveSavedLocation: (name: String) -> Unit,
     onSearchSubmit: (query: String) -> Unit,
     onResetToGps: () -> Unit,
     isSearching: Boolean
 ) {
     var searchQuery by remember { mutableStateOf("") }
+
+    val isCurrentSaved = remember(currentLocation, savedLocations) {
+        savedLocations.any {
+            it.first.equals(currentLocation, ignoreCase = true) ||
+            currentLocation.contains(it.first) ||
+            it.first.contains(currentLocation)
+        }
+    }
 
     val districtPresets = remember {
         listOf(
@@ -10711,7 +10837,7 @@ fun LocationSelectionDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Header Row
                 Row(
@@ -10738,7 +10864,7 @@ fun LocationSelectionDialog(
                         }
                         Column {
                             Text(
-                                text = "স্থান নির্বাচন করুন",
+                                text = "স্থান নির্বাচন ও সেভ",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -10763,6 +10889,191 @@ fun LocationSelectionDialog(
                     }
                 }
 
+                // 1. SAVE CURRENT LOCATION ACTION BANNER
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFF1E293B),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isCurrentSaved) Color(0xFF10B981).copy(alpha = 0.6f) else Color(0xFFF59E0B).copy(alpha = 0.5f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = if (isCurrentSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = null,
+                                tint = if (isCurrentSaved) Color(0xFF10B981) else Color(0xFFF59E0B),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = if (isCurrentSaved) "বর্তমান অবস্থান সেভ করা আছে" else "বর্তমান অবস্থান সেভ করে রাখুন",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "১-ক্লিকে যেকোনো সময়ে লাইভ আবহাওয়া দেখুন",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF94A3B8)
+                                )
+                            }
+                        }
+
+                        if (!isCurrentSaved) {
+                            Button(
+                                onClick = onSaveCurrentLocation,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFF59E0B),
+                                    contentColor = Color.Black
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Bookmark,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = "+ সেভ করুন",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF059669).copy(alpha = 0.25f),
+                                border = BorderStroke(1.dp, Color(0xFF10B981))
+                            ) {
+                                Text(
+                                    text = "✓ সেভড",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF34D399),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Divider(color = Color.White.copy(alpha = 0.1f))
+
+                // 2. SAVED FAVORITE LOCATIONS SECTION
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bookmark,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "সেভ করা প্রিয় অবস্থানসমূহ (${savedLocations.size}):",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    if (savedLocations.isEmpty()) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF1E293B).copy(alpha = 0.6f)
+                        ) {
+                            Text(
+                                text = "কোনো সেভ করা স্থান নেই। ১-ক্লিকে আবহাওয়া দেখার জন্য উপরের '+ সেভ করুন' বাটনে ক্লিক করুন।",
+                                fontSize = 11.5.sp,
+                                color = Color(0xFF94A3B8),
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    } else {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(savedLocations) { (sName, sLat, sLon) ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFF1E293B),
+                                    border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
+                                    modifier = Modifier.clickable {
+                                        onSelectPreset(sName, sLat, sLon)
+                                    }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Place,
+                                            contentDescription = null,
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Column {
+                                            Text(
+                                                text = formatShortLocation(sName),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                                maxLines = 1
+                                            )
+                                            Text(
+                                                text = "১-ক্লিক লাইভ আবহাওয়া",
+                                                fontSize = 9.5.sp,
+                                                color = Color(0xFF38BDF8)
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { onRemoveSavedLocation(sName) },
+                                            modifier = Modifier.size(20.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remove",
+                                                tint = Color(0xFFF87171),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Divider(color = Color.White.copy(alpha = 0.1f))
 
                 // Search Box
@@ -10771,8 +11082,8 @@ fun LocationSelectionDialog(
                     onValueChange = { searchQuery = it },
                     placeholder = {
                         Text(
-                            text = "খুঁজুন (যেমন: বাহাদ্দারহাট / কুমিল্লা / ঢাকা)...",
-                            fontSize = 12.5.sp,
+                            text = "অন্যান্য স্থান খুঁজুন (যেমন: বাহাদ্দারহাট / কুমিল্লা)...",
+                            fontSize = 12.sp,
                             color = Color(0xFF64748B)
                         )
                     },
@@ -10824,7 +11135,7 @@ fun LocationSelectionDialog(
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(44.dp),
+                            .height(42.dp),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         if (isSearching) {
@@ -10844,7 +11155,7 @@ fun LocationSelectionDialog(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    text = "'${searchQuery.trim()}' খুঁজুন ও সেট করুন",
+                                    text = "'${searchQuery.trim()}' খুঁজুন ও আবহাওয়া দেখুন",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -10892,7 +11203,7 @@ fun LocationSelectionDialog(
                 // Quick District Chips Header
                 Text(
                     text = "দ্রুত জেলা নির্বাচন করুন:",
-                    fontSize = 12.5.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF94A3B8)
                 )
@@ -10945,7 +11256,7 @@ fun LocationSelectionDialog(
                     onClick = onResetToGps,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp),
+                        .height(42.dp),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.6f)),
                     colors = ButtonDefaults.outlinedButtonColors(
@@ -11013,6 +11324,7 @@ fun DashboardHomeScreen(
     val liveHourlyTimesVal by viewModel.liveHourlyTimes.collectAsStateWithLifecycle()
     val liveHourlyTempsVal by viewModel.liveHourlyTemps.collectAsStateWithLifecycle()
     val liveHourlyCodesVal by viewModel.liveHourlyCodes.collectAsStateWithLifecycle()
+    val savedFavoriteLocationsVal by viewModel.savedFavoriteLocations.collectAsStateWithLifecycle()
 
     val locationPermissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -11244,17 +11556,176 @@ fun DashboardHomeScreen(
         label = "sunGlowPulse"
     )
 
+    val cyclePedalTransition = rememberInfiniteTransition(label = "cycle_pedal_transition")
+    val cycleAngle by cyclePedalTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "cycleAngle"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bgBrush)
     ) {
         if (activeState == HomeUiState.STORMY_RAIN) {
-            // [SCENARIO: STORMY RAIN MODE] Organic Unpredictable Rain Animation
+            // [SCENARIO: STORMY RAIN MODE] User-Provided Background, Moving Road, Pedaling Cyclist & Multi-Directional Electric Spark Lightning
+            Image(
+                painter = painterResource(id = R.drawable.img_rain_cyclist),
+                contentDescription = "Rain Cyclist Background",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val width = size.width
                 val height = size.height
 
+                // 1. MOVING ROAD DASHES & REFLECTIONS ("রাস্তা টা এমন ভাবে চলে যেনো মনে হচ্ছে সাইকেল চলছে")
+                val roadY = height * 0.82f
+                val dashWidth = 36.dp.toPx()
+                val dashGap = 32.dp.toPx()
+                val dashPeriod = dashWidth + dashGap
+                val roadOffset = (cycleAngle / 360f) * dashPeriod
+
+                var dashX = -dashPeriod + (roadOffset % dashPeriod)
+                while (dashX < width + dashPeriod) {
+                    drawLine(
+                        color = Color(0xFF818CF8).copy(alpha = 0.55f),
+                        start = Offset(dashX, roadY + 20.dp.toPx()),
+                        end = Offset(dashX + dashWidth, roadY + 20.dp.toPx()),
+                        strokeWidth = 3.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                    dashX += dashPeriod
+                }
+
+                // Wet puddle reflections scrolling on road
+                val puddleX1 = (width * 0.25f - roadOffset * 0.9f) % width
+                val puddleX2 = (width * 0.72f - roadOffset * 0.9f) % width
+                drawOval(
+                    color = Color(0xFF38BDF8).copy(alpha = 0.22f),
+                    topLeft = Offset(if (puddleX1 < 0) puddleX1 + width else puddleX1, roadY + 8.dp.toPx()),
+                    size = Size(75.dp.toPx(), 16.dp.toPx())
+                )
+                drawOval(
+                    color = Color(0xFF38BDF8).copy(alpha = 0.22f),
+                    topLeft = Offset(if (puddleX2 < 0) puddleX2 + width else puddleX2, roadY + 22.dp.toPx()),
+                    size = Size(90.dp.toPx(), 18.dp.toPx())
+                )
+
+                // 2. CYCLIST, BICYCLE & PEDALING ANIMATION ("সাইকেলের চাকাগুলো চলমান হবে", "সাইকেলের ব্যক্তিটা পেডেল পারছে", "এক জায়গায় থাকবে")
+                val bcX = width * 0.48f
+                val bcY = height * 0.73f
+                val wheelR = 25.dp.toPx()
+                val rearWheelX = bcX - 58.dp.toPx()
+                val frontWheelX = bcX + 58.dp.toPx()
+                val wheelY = bcY + 20.dp.toPx()
+
+                // Wheel 1: Rear Wheel (Spinning Spokes)
+                drawCircle(color = Color(0xFF0F172A), radius = wheelR + 3.dp.toPx(), center = Offset(rearWheelX, wheelY))
+                drawCircle(color = Color(0xFF38BDF8), radius = wheelR, center = Offset(rearWheelX, wheelY), style = Stroke(width = 3.dp.toPx()))
+                drawCircle(color = Color.White, radius = 4.dp.toPx(), center = Offset(rearWheelX, wheelY))
+                for (spoke in 0 until 12) {
+                    val spokeRad = Math.toRadians((cycleAngle + spoke * 30.0)).toFloat()
+                    val sx = rearWheelX + wheelR * Math.cos(spokeRad.toDouble()).toFloat()
+                    val sy = wheelY + wheelR * Math.sin(spokeRad.toDouble()).toFloat()
+                    drawLine(color = Color(0xFF93C5FD).copy(alpha = 0.85f), start = Offset(rearWheelX, wheelY), end = Offset(sx, sy), strokeWidth = 1.2.dp.toPx())
+                }
+
+                // Wheel 2: Front Wheel (Spinning Spokes)
+                drawCircle(color = Color(0xFF0F172A), radius = wheelR + 3.dp.toPx(), center = Offset(frontWheelX, wheelY))
+                drawCircle(color = Color(0xFF38BDF8), radius = wheelR, center = Offset(frontWheelX, wheelY), style = Stroke(width = 3.dp.toPx()))
+                drawCircle(color = Color.White, radius = 4.dp.toPx(), center = Offset(frontWheelX, wheelY))
+                for (spoke in 0 until 12) {
+                    val spokeRad = Math.toRadians((cycleAngle + spoke * 30.0)).toFloat()
+                    val sx = frontWheelX + wheelR * Math.cos(spokeRad.toDouble()).toFloat()
+                    val sy = wheelY + wheelR * Math.sin(spokeRad.toDouble()).toFloat()
+                    drawLine(color = Color(0xFF93C5FD).copy(alpha = 0.85f), start = Offset(frontWheelX, wheelY), end = Offset(sx, sy), strokeWidth = 1.2.dp.toPx())
+                }
+
+                // Orange Bicycle Frame
+                val bbX = bcX - 5.dp.toPx()
+                val bbY = wheelY - 2.dp.toPx()
+                val seatX = bcX - 22.dp.toPx()
+                val seatY = bcY - 22.dp.toPx()
+                val headX = bcX + 40.dp.toPx()
+                val headY = bcY - 20.dp.toPx()
+
+                val frameColor = Color(0xFFF97316)
+                drawLine(frameColor, Offset(rearWheelX, wheelY), Offset(bbX, bbY), 3.5.dp.toPx(), StrokeCap.Round)
+                drawLine(frameColor, Offset(rearWheelX, wheelY), Offset(seatX, seatY), 3.5.dp.toPx(), StrokeCap.Round)
+                drawLine(frameColor, Offset(bbX, bbY), Offset(seatX, seatY), 3.5.dp.toPx(), StrokeCap.Round)
+                drawLine(frameColor, Offset(bbX, bbY), Offset(headX, headY), 3.5.dp.toPx(), StrokeCap.Round)
+                drawLine(frameColor, Offset(seatX, seatY), Offset(headX, headY), 3.5.dp.toPx(), StrokeCap.Round)
+                drawLine(frameColor, Offset(frontWheelX, wheelY), Offset(headX, headY - 8.dp.toPx()), 3.5.dp.toPx(), StrokeCap.Round)
+
+                // Seat & Handlebars
+                drawLine(Color(0xFF0F172A), Offset(seatX - 8.dp.toPx(), seatY - 2.dp.toPx()), Offset(seatX + 8.dp.toPx(), seatY - 2.dp.toPx()), 4.dp.toPx(), StrokeCap.Round)
+                drawLine(Color(0xFF64748B), Offset(headX, headY - 8.dp.toPx()), Offset(headX - 6.dp.toPx(), headY - 20.dp.toPx()), 3.dp.toPx(), StrokeCap.Round)
+
+                // Rotating Pedal Arms
+                val pedalRad = Math.toRadians(cycleAngle.toDouble()).toFloat()
+                val crankLen = 12.dp.toPx()
+                val p1X = bbX + crankLen * Math.cos(pedalRad.toDouble()).toFloat()
+                val p1Y = bbY + crankLen * Math.sin(pedalRad.toDouble()).toFloat()
+                val p2X = bbX - crankLen * Math.cos(pedalRad.toDouble()).toFloat()
+                val p2Y = bbY - crankLen * Math.sin(pedalRad.toDouble()).toFloat()
+
+                drawLine(Color(0xFFCBD5E1), Offset(bbX, bbY), Offset(p1X, p1Y), 3.dp.toPx(), StrokeCap.Round)
+                drawLine(Color(0xFFCBD5E1), Offset(bbX, bbY), Offset(p2X, p2Y), 3.dp.toPx(), StrokeCap.Round)
+                drawCircle(Color(0xFF1E293B), radius = 3.dp.toPx(), center = Offset(p1X, p1Y))
+                drawCircle(Color(0xFF1E293B), radius = 3.dp.toPx(), center = Offset(p2X, p2Y))
+
+                // Rider Body & Pedaling Legs
+                val riderBob = Math.sin(pedalRad.toDouble() * 2.0).toFloat() * 2.dp.toPx()
+                val hipX = seatX
+                val hipY = seatY - 8.dp.toPx() + riderBob
+
+                // Leg 1 (Right Leg)
+                val legColor = Color(0xFF1E293B)
+                val knee1X = (hipX + p1X) / 2f + 7.dp.toPx()
+                val knee1Y = (hipY + p1Y) / 2f - 5.dp.toPx()
+                drawLine(legColor, Offset(hipX, hipY), Offset(knee1X, knee1Y), 4.5.dp.toPx(), StrokeCap.Round)
+                drawLine(legColor, Offset(knee1X, knee1Y), Offset(p1X, p1Y), 4.dp.toPx(), StrokeCap.Round)
+
+                // Leg 2 (Left Leg)
+                val knee2X = (hipX + p2X) / 2f - 5.dp.toPx()
+                val knee2Y = (hipY + p2Y) / 2f - 5.dp.toPx()
+                drawLine(legColor.copy(alpha = 0.75f), Offset(hipX, hipY), Offset(knee2X, knee2Y), 4.5.dp.toPx(), StrokeCap.Round)
+                drawLine(legColor.copy(alpha = 0.75f), Offset(knee2X, knee2Y), Offset(p2X, p2Y), 4.dp.toPx(), StrokeCap.Round)
+
+                // Torso (Pink Shirt)
+                val shoulderX = hipX + 8.dp.toPx()
+                val shoulderY = hipY - 38.dp.toPx()
+                val torsoColor = Color(0xFFEC4899)
+                drawLine(torsoColor, Offset(hipX, hipY), Offset(shoulderX, shoulderY), 11.dp.toPx(), StrokeCap.Round)
+
+                // Head
+                val headCenterX = shoulderX - 2.dp.toPx()
+                val headCenterY = shoulderY - 14.dp.toPx()
+                drawCircle(Color(0xFFFDBA74), radius = 8.5.dp.toPx(), center = Offset(headCenterX, headCenterY))
+                drawArc(Color(0xFF0F172A), startAngle = 180f, sweepAngle = 180f, useCenter = true, topLeft = Offset(headCenterX - 8.5.dp.toPx(), headCenterY - 9.dp.toPx()), size = Size(17.dp.toPx(), 13.dp.toPx()))
+
+                // Arms holding Umbrella
+                val handX = headX - 6.dp.toPx()
+                val handY = headY - 20.dp.toPx()
+                val umbrellaHandX = shoulderX - 6.dp.toPx()
+                val umbrellaHandY = shoulderY - 12.dp.toPx()
+                drawLine(torsoColor, Offset(shoulderX, shoulderY), Offset(handX, handY), 3.5.dp.toPx(), StrokeCap.Round)
+                drawLine(torsoColor, Offset(shoulderX, shoulderY), Offset(umbrellaHandX, umbrellaHandY), 3.5.dp.toPx(), StrokeCap.Round)
+
+                // Umbrella Canopy
+                val umbX = shoulderX - 8.dp.toPx()
+                val umbY = shoulderY - 58.dp.toPx()
+                drawLine(Color(0xFFF59E0B), Offset(umbrellaHandX, umbrellaHandY), Offset(umbX, umbY), 2.5.dp.toPx(), StrokeCap.Round)
+                drawArc(Color(0xFF0F172A), startAngle = 180f, sweepAngle = 180f, useCenter = true, topLeft = Offset(umbX - 38.dp.toPx(), umbY - 28.dp.toPx()), size = Size(76.dp.toPx(), 56.dp.toPx()))
+
+                // 3. FALLING RAIN DROPS OVERLAY ("ছবির বৃষ্টির ফোটা গুলো যেনো বৃষ্টির মত ঝরতে থাকে")
                 rainDropsList.forEach { drop ->
                     val progress = (rainPhase * drop.speedMult + drop.yOffsetRatio) % 1.0f
                     val startY = progress * (height + 100f) - 50f
@@ -11263,7 +11734,7 @@ fun DashboardHomeScreen(
                     val endX = startX + (drop.slantPx * 0.3f)
 
                     drawLine(
-                        color = Color.White.copy(alpha = drop.alpha),
+                        color = Color.White.copy(alpha = drop.alpha * 0.95f),
                         start = Offset(startX, startY),
                         end = Offset(endX, endY),
                         strokeWidth = drop.strokeDp.dp.toPx(),
@@ -11271,9 +11742,9 @@ fun DashboardHomeScreen(
                     )
 
                     if (progress > 0.85f && drop.speedMult > 1.8f) {
-                        val splashR = (progress - 0.85f) * 40.dp.toPx()
+                        val splashR = (progress - 0.85f) * 35.dp.toPx()
                         drawCircle(
-                            color = Color.White.copy(alpha = (1.0f - progress) * 0.6f * drop.alpha),
+                            color = Color(0xFF38BDF8).copy(alpha = (1.0f - progress) * 0.8f * drop.alpha),
                             radius = splashR,
                             center = Offset(endX, endY),
                             style = Stroke(width = 1.dp.toPx())
@@ -11282,43 +11753,98 @@ fun DashboardHomeScreen(
                 }
             }
 
+            // 4. MULTI-DIRECTIONAL ELECTRIC SPARK LIGHTNING ("একেক বার একেক দিক থেকে চমকাবে")
             if (lightningAlpha > 0.05f) {
-                // Flash overlay
+                // Sky Flash Overlay
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.White.copy(alpha = lightningAlpha * 0.65f))
+                        .background(Color.White.copy(alpha = lightningAlpha * 0.55f))
                 )
 
-                // Realistic Electric Lightning Bolt Path
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
 
-                    val boltPath = Path().apply {
-                        moveTo(w * 0.55f, h * 0.02f)
-                        lineTo(w * 0.50f, h * 0.12f)
-                        lineTo(w * 0.58f, h * 0.20f)
-                        lineTo(w * 0.44f, h * 0.32f)
-                        lineTo(w * 0.52f, h * 0.42f)
-                        lineTo(w * 0.48f, h * 0.55f)
+                    // Dynamic direction index changes on each lightning burst cycle
+                    val sparkDirIndex = ((System.currentTimeMillis() / 4500L) % 4).toInt()
+
+                    val (boltPath, branchPath) = when (sparkDirIndex) {
+                        0 -> { // TOP-LEFT -> CENTER-RIGHT SPARK
+                            val main = Path().apply {
+                                moveTo(w * 0.18f, h * 0.02f)
+                                lineTo(w * 0.25f, h * 0.12f)
+                                lineTo(w * 0.19f, h * 0.22f)
+                                lineTo(w * 0.35f, h * 0.32f)
+                                lineTo(w * 0.28f, h * 0.44f)
+                                lineTo(w * 0.42f, h * 0.56f)
+                            }
+                            val branch = Path().apply {
+                                moveTo(w * 0.25f, h * 0.12f)
+                                lineTo(w * 0.38f, h * 0.18f)
+                                lineTo(w * 0.34f, h * 0.26f)
+                            }
+                            main to branch
+                        }
+                        1 -> { // TOP-RIGHT -> CENTER-LEFT SPARK
+                            val main = Path().apply {
+                                moveTo(w * 0.82f, h * 0.03f)
+                                lineTo(w * 0.72f, h * 0.14f)
+                                lineTo(w * 0.79f, h * 0.24f)
+                                lineTo(w * 0.62f, h * 0.35f)
+                                lineTo(w * 0.68f, h * 0.48f)
+                                lineTo(w * 0.52f, h * 0.60f)
+                            }
+                            val branch = Path().apply {
+                                moveTo(w * 0.72f, h * 0.14f)
+                                lineTo(w * 0.58f, h * 0.22f)
+                                lineTo(w * 0.63f, h * 0.30f)
+                            }
+                            main to branch
+                        }
+                        2 -> { // TOP-CENTER -> MULTI-FORK ELECTRIC SPARK
+                            val main = Path().apply {
+                                moveTo(w * 0.50f, h * 0.01f)
+                                lineTo(w * 0.44f, h * 0.10f)
+                                lineTo(w * 0.53f, h * 0.20f)
+                                lineTo(w * 0.46f, h * 0.30f)
+                                lineTo(w * 0.55f, h * 0.42f)
+                            }
+                            val branch = Path().apply {
+                                moveTo(w * 0.53f, h * 0.20f)
+                                lineTo(w * 0.68f, h * 0.28f)
+                                lineTo(w * 0.62f, h * 0.38f)
+                                moveTo(w * 0.46f, h * 0.30f)
+                                lineTo(w * 0.34f, h * 0.38f)
+                            }
+                            main to branch
+                        }
+                        else -> { // TOP-FAR-RIGHT -> ARC SPARK
+                            val main = Path().apply {
+                                moveTo(w * 0.92f, h * 0.04f)
+                                lineTo(w * 0.84f, h * 0.15f)
+                                lineTo(w * 0.88f, h * 0.25f)
+                                lineTo(w * 0.74f, h * 0.38f)
+                                lineTo(w * 0.80f, h * 0.50f)
+                            }
+                            val branch = Path().apply {
+                                moveTo(w * 0.84f, h * 0.15f)
+                                lineTo(w * 0.70f, h * 0.20f)
+                                lineTo(w * 0.75f, h * 0.28f)
+                            }
+                            main to branch
+                        }
                     }
 
-                    val branchPath = Path().apply {
-                        moveTo(w * 0.58f, h * 0.20f)
-                        lineTo(w * 0.66f, h * 0.28f)
-                        lineTo(w * 0.62f, h * 0.36f)
-                    }
-
-                    // Electric Glow Outer
+                    // Electric Glow Outer (Cyan / Electric Purple)
                     drawPath(
                         path = boltPath,
-                        color = Color(0xFF818CF8).copy(alpha = lightningAlpha * 0.9f),
+                        color = Color(0xFF38BDF8).copy(alpha = lightningAlpha * 0.95f),
                         style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
                     )
                     drawPath(
                         path = branchPath,
-                        color = Color(0xFF818CF8).copy(alpha = lightningAlpha * 0.7f),
+                        color = Color(0xFFA855F7).copy(alpha = lightningAlpha * 0.85f),
                         style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
                     )
 
@@ -11330,90 +11856,38 @@ fun DashboardHomeScreen(
                     )
                     drawPath(
                         path = branchPath,
-                        color = Color.White.copy(alpha = lightningAlpha * 0.9f),
+                        color = Color.White.copy(alpha = lightningAlpha * 0.95f),
                         style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
                     )
                 }
             }
         } else if (activeState == HomeUiState.NIGHT) {
-            // [SCENARIO: NIGHT MODE] Realistic Glowing Sparkling Stars & Dynamic Lunar Moon Phase
+            // [SCENARIO: NIGHT MODE] User-Provided Photorealistic Night Sky & Sparkling Stars Animation
+            Image(
+                painter = painterResource(id = R.drawable.img_night_sky),
+                contentDescription = "Night Sky Background",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val width = size.width
                 val height = size.height
 
-                // 1. Faint Cosmic Stardust / Nebula Glow
-                drawCircle(
-                    color = Color(0xFF1E1B4B).copy(alpha = 0.45f),
-                    radius = width * 0.7f,
-                    center = Offset(width * 0.3f, height * 0.2f)
-                )
-
-                // 2. Dynamic Realistic Lunar Moon
-                val moonX = width * 0.80f
-                val moonY = height * 0.12f
-                val moonPhase = calculateMoonPhase()
-
-                if (moonPhase < 0.06 || moonPhase > 0.94) {
-                    // New Moon / Dark Moon Disk
-                    drawCircle(
-                        color = Color(0xFF0F172A),
-                        radius = 18.dp.toPx(),
-                        center = Offset(moonX, moonY)
-                    )
-                    drawCircle(
-                        color = Color(0xFF64748B).copy(alpha = 0.6f),
-                        radius = 18.dp.toPx(),
-                        center = Offset(moonX, moonY),
-                        style = Stroke(width = 1.5.dp.toPx())
-                    )
-                } else if (moonPhase in 0.44..0.56) {
-                    // Full Moon with Outer Aura Glow
-                    drawCircle(
-                        color = Color(0xFF93C5FD).copy(alpha = 0.35f),
-                        radius = 32.dp.toPx(),
-                        center = Offset(moonX, moonY)
-                    )
-                    drawCircle(
-                        color = Color(0xFFFFFBEB),
-                        radius = 18.dp.toPx(),
-                        center = Offset(moonX, moonY)
-                    )
-                } else {
-                    // Crescent / Half / Gibbous Phase
-                    drawCircle(
-                        color = Color(0xFF93C5FD).copy(alpha = 0.25f),
-                        radius = 28.dp.toPx(),
-                        center = Offset(moonX, moonY)
-                    )
-                    drawCircle(
-                        color = Color(0xFFE2E8F0),
-                        radius = 18.dp.toPx(),
-                        center = Offset(moonX, moonY)
-                    )
-                    val shadowX = if (moonPhase < 0.5) (moonX - 8.dp.toPx()) else (moonX + 8.dp.toPx())
-                    val shadowRad = if (moonPhase in 0.20..0.30 || moonPhase in 0.70..0.80) 18.dp.toPx() else 15.dp.toPx()
-                    drawCircle(
-                        color = Color(0xFF0F172A).copy(alpha = 0.95f),
-                        radius = shadowRad,
-                        center = Offset(shadowX, moonY - 2.dp.toPx())
-                    )
-                }
-
-                // 3. Realistic Glowing Stars with 4-Point Sparkle Cross Rays
-                for (i in 0 until 50) {
+                // Realistic Sparkling Stars Overlay with 4-Point Sparkle Cross Rays
+                for (i in 0 until 45) {
                     val x = (i * 137 + 29) % width
-                    val y = (i * 89 + 17) % (height * 0.60f)
+                    val y = (i * 89 + 17) % (height * 0.70f)
                     val baseRadius = 1.2f + (i % 3) * 0.8f
                     val twinkle = if (i % 2 == 0) starPulse else (1.4f - starPulse)
 
                     // Major Sparkling Stars with 4-point cross shine
                     if (i % 4 == 0) {
                         val rayLen = (6.dp.toPx() + (i % 3) * 4.dp.toPx()) * twinkle
-                        val rayColor = Color.White.copy(alpha = 0.70f * twinkle)
+                        val rayColor = Color.White.copy(alpha = 0.80f * twinkle)
 
                         // Outer Glow
                         drawCircle(
-                            color = Color(0xFF93C5FD).copy(alpha = 0.25f * twinkle),
+                            color = Color(0xFF93C5FD).copy(alpha = 0.30f * twinkle),
                             radius = baseRadius * 3.5f.dp.toPx(),
                             center = Offset(x, y)
                         )
@@ -11422,7 +11896,7 @@ fun DashboardHomeScreen(
                             color = rayColor,
                             start = Offset(x - rayLen, y),
                             end = Offset(x + rayLen, y),
-                            strokeWidth = 1.0.dp.toPx(),
+                            strokeWidth = 1.2.dp.toPx(),
                             cap = StrokeCap.Round
                         )
                         // Vertical Ray
@@ -11430,14 +11904,14 @@ fun DashboardHomeScreen(
                             color = rayColor,
                             start = Offset(x, y - rayLen),
                             end = Offset(x, y + rayLen),
-                            strokeWidth = 1.0.dp.toPx(),
+                            strokeWidth = 1.2.dp.toPx(),
                             cap = StrokeCap.Round
                         )
                     }
 
                     // Star Crisp Center Core
                     drawCircle(
-                        color = Color.White.copy(alpha = 0.85f * twinkle),
+                        color = Color.White.copy(alpha = 0.90f * twinkle),
                         radius = baseRadius.dp.toPx(),
                         center = Offset(x, y)
                     )
@@ -11990,11 +12464,24 @@ fun DashboardHomeScreen(
         if (showLocationSelectionDialog) {
             LocationSelectionDialog(
                 currentLocation = liveLocationNameVal,
+                savedLocations = savedFavoriteLocationsVal,
                 onDismiss = { showLocationSelectionDialog = false },
                 onSelectPreset = { name, lat, lon ->
                     viewModel.saveManualLocation(name, lat, lon)
                     Toast.makeText(context, "স্থান পরিবর্তন করা হয়েছে: $name", Toast.LENGTH_SHORT).show()
                     showLocationSelectionDialog = false
+                },
+                onSaveCurrentLocation = {
+                    val added = viewModel.saveCurrentLocationToFavorites()
+                    if (added) {
+                        Toast.makeText(context, "বর্তমান অবস্থান সেভ করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "এই স্থানটি আগেই সেভ করা আছে", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onRemoveSavedLocation = { name ->
+                    viewModel.removeFavoriteLocation(name)
+                    Toast.makeText(context, "'$name' তালিকা থেকে মোছা হয়েছে", Toast.LENGTH_SHORT).show()
                 },
                 onSearchSubmit = { query ->
                     isSearchingLocation = true
