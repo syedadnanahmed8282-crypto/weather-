@@ -9906,6 +9906,19 @@ fun calculateMoonPhase(): Double {
     return ((diffDays % synodicMonth) + synodicMonth) % synodicMonth / synodicMonth
 }
 
+fun getTempColor(tempStr: String): Color {
+    val clean = tempStr.toCleanEnglishWeatherMetric().replace("[^0-9.-]".toRegex(), "")
+    val numeric = clean.toDoubleOrNull() ?: 25.0
+    return when {
+        numeric >= 35.0 -> Color(0xFFEF4444) // Hot Red
+        numeric >= 30.0 -> Color(0xFFF97316) // Warm Orange
+        numeric >= 25.0 -> Color(0xFFFBBF24) // Gold / Pleasant
+        numeric >= 20.0 -> Color(0xFF34D399) // Mild Emerald Green
+        numeric >= 15.0 -> Color(0xFF38BDF8) // Cool Sky Blue
+        else -> Color(0xFF818CF8) // Cold Indigo
+    }
+}
+
 fun formatShortLocation(loc: String): String {
     if (loc.isBlank()) return "Ctg"
     var clean = loc.toEnglishDigits()
@@ -9986,9 +9999,27 @@ fun ImageStyleWeatherDashboard(
 
     val moonPhase = remember { calculateMoonPhase() }
 
-    val englishDateTime = remember {
-        val sdf = java.text.SimpleDateFormat("hh:mm a • EEE, d MMM", java.util.Locale.US)
-        sdf.format(java.util.Date())
+    var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            currentTimeMillis = System.currentTimeMillis()
+            kotlinx.coroutines.delay(1000L)
+        }
+    }
+
+    val liveClockTime = remember(currentTimeMillis) {
+        val sdf = java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.US)
+        sdf.format(java.util.Date(currentTimeMillis))
+    }
+
+    val liveDateStr = remember(currentTimeMillis) {
+        val sdf = java.text.SimpleDateFormat("EEE, d MMM yyyy", java.util.Locale.US)
+        sdf.format(java.util.Date(currentTimeMillis))
+    }
+
+    val tempColor = remember(currentTemp) {
+        getTempColor(currentTemp)
     }
 
     val shortLoc = remember(locationName) {
@@ -10008,13 +10039,13 @@ fun ImageStyleWeatherDashboard(
                 .fillMaxWidth()
                 .padding(10.dp)
         ) {
-            // Header Row: Time/Date Left with Temp Below, Location/Refresh Right
+            // Header Row: Clock & Date Left, Location & Dynamic Temp Right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
-                // Left: Time, Date & Temperature in English
+                // Left: Live Clock with Seconds & Date underneath
                 Column {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -10022,33 +10053,28 @@ fun ImageStyleWeatherDashboard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.AccessTime,
-                            contentDescription = "Time",
-                            tint = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier.size(13.dp)
+                            contentDescription = "Clock",
+                            tint = Color.White.copy(alpha = 0.90f),
+                            modifier = Modifier.size(15.dp)
                         )
                         Text(
-                            text = englishDateTime,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White.copy(alpha = 0.95f)
+                            text = liveClockTime,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
                         )
                     }
-                    if (currentTemp.isNotBlank()) {
-                        Text(
-                            text = "Temp: ${currentTemp.toCleanEnglishWeatherMetric()}",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier.padding(start = 18.dp, top = 2.dp)
-                        )
-                    }
+                    Text(
+                        text = liveDateStr,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White.copy(alpha = 0.82f),
+                        modifier = Modifier.padding(start = 20.dp, top = 2.dp)
+                    )
                 }
 
-                // Right: Short Location & Refresh
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
+                // Right: Location/Refresh Pill and Temperature beneath
+                Column(horizontalAlignment = Alignment.End) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -10086,6 +10112,27 @@ fun ImageStyleWeatherDashboard(
                                     modifier = Modifier.size(15.dp)
                                 )
                             }
+                        }
+                    }
+
+                    if (currentTemp.isNotBlank()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            modifier = Modifier.padding(top = 4.dp, end = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Thermostat,
+                                contentDescription = "Temperature",
+                                tint = tempColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = currentTemp.toCleanEnglishWeatherMetric(),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = tempColor
+                            )
                         }
                     }
                 }
@@ -10496,25 +10543,34 @@ fun DashboardHomeScreen(
     val (liveWeatherIcon, liveWeatherTint) = getWeatherIconAndColor(liveWeatherCodeVal, isNight)
 
     var manualUiState by remember { mutableStateOf<HomeUiState?>(null) }
-    val isStormy = liveWeatherCodeVal in listOf(61, 63, 65, 95, 96, 99)
+    val isStormy = liveWeatherCodeVal in listOf(51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99)
     val activeState = manualUiState ?: if (isStormy) HomeUiState.STORMY_RAIN else if (isNight) HomeUiState.NIGHT else HomeUiState.DAY
 
-    // Background Gradient mappings for the three states
+    val currentHour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
+
+    // Background Gradient mappings for the states
     val bgBrush = when (activeState) {
-        // [SCENARIO 1: DAY_MODE]
-        // Vertical linear gradient from bright neon blue (#00E5FF) at the bottom to deep dark navy blue (#0A192F) at the top.
-        HomeUiState.DAY -> Brush.verticalGradient(
-            colors = listOf(Color(0xFF0A192F), Color(0xFF00E5FF))
-        )
-        // [SCENARIO 2: NIGHT_MODE]
-        // Deep dark navy blue (#0A192F) transitioning to pure pitch black (#000000) at the top.
+        HomeUiState.DAY -> {
+            when (currentHour) {
+                in 6..11 -> Brush.verticalGradient(
+                    colors = listOf(Color(0xFF0F172A), Color(0xFF0284C7), Color(0xFF38BDF8), Color(0xFFBAE6FD))
+                )
+                in 12..15 -> Brush.verticalGradient(
+                    colors = listOf(Color(0xFF0A192F), Color(0xFF0284C7), Color(0xFF00E5FF))
+                )
+                in 16..18 -> Brush.verticalGradient(
+                    colors = listOf(Color(0xFF1E1B4B), Color(0xFF4C1D95), Color(0xFF9A3412), Color(0xFFEA580C), Color(0xFFFDE047))
+                )
+                else -> Brush.verticalGradient(
+                    colors = listOf(Color(0xFF0A192F), Color(0xFF0284C7), Color(0xFF00E5FF))
+                )
+            }
+        }
         HomeUiState.NIGHT -> Brush.verticalGradient(
-            colors = listOf(Color(0xFF000000), Color(0xFF0A192F))
+            colors = listOf(Color(0xFF030712), Color(0xFF0F172A), Color(0xFF1E293B))
         )
-        // [SCENARIO 3: STORMY_RAIN_MODE]
-        // Dark, moody gray-blue gradient background.
         HomeUiState.STORMY_RAIN -> Brush.verticalGradient(
-            colors = listOf(Color(0xFF0B0F19), Color(0xFF2A3439))
+            colors = listOf(Color(0xFF090D16), Color(0xFF1E293B), Color(0xFF334155))
         )
         else -> Brush.verticalGradient(
             colors = listOf(Color(0xFF0A192F), Color(0xFF00E5FF))
@@ -10548,7 +10604,33 @@ fun DashboardHomeScreen(
         list
     }
 
-    // Animation transition helpers for particles and twinkling elements
+    // Organic Random Rain Drop Specifications
+    data class RainDropSpec(
+        val xRatio: Float,
+        val yOffsetRatio: Float,
+        val speedMult: Float,
+        val lengthDp: Float,
+        val strokeDp: Float,
+        val alpha: Float,
+        val slantPx: Float
+    )
+
+    val rainDropsList = remember {
+        val random = java.util.Random(12345L)
+        List(75) {
+            RainDropSpec(
+                xRatio = random.nextFloat(),
+                yOffsetRatio = random.nextFloat(),
+                speedMult = 1.0f + random.nextFloat() * 1.8f,
+                lengthDp = 18f + random.nextFloat() * 26f,
+                strokeDp = 0.9f + random.nextFloat() * 1.5f,
+                alpha = 0.18f + random.nextFloat() * 0.45f,
+                slantPx = -5f + random.nextFloat() * 12f
+            )
+        }
+    }
+
+    // Animation transition helpers for particles and sky elements
     val infiniteTransition = rememberInfiniteTransition(label = "rain_particle")
     val rainPhase by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -10558,6 +10640,26 @@ fun DashboardHomeScreen(
             repeatMode = RepeatMode.Restart
         ),
         label = "rainPhase"
+    )
+
+    val skyTransition = rememberInfiniteTransition(label = "sky_movement")
+    val skyProgress by skyTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(18000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "skyProgress"
+    )
+    val wingFlapProgress by skyTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "wingFlap"
     )
 
     val lightningTransition = rememberInfiniteTransition(label = "lightning_flash")
@@ -10596,49 +10698,325 @@ fun DashboardHomeScreen(
             .fillMaxSize()
             .background(bgBrush)
     ) {
-        // [SCENARIO 2: NIGHT_MODE] Subtle scattered vector star overlay
-        if (activeState == HomeUiState.NIGHT) {
+        if (activeState == HomeUiState.STORMY_RAIN) {
+            // [SCENARIO: STORMY RAIN MODE] Organic Unpredictable Rain Animation
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val width = size.width
                 val height = size.height
-                for (i in 0 until 35) {
-                    val x = (i * 123) % width
-                    val y = (i * 87) % (height * 0.55f) // top 55% of the screen
-                    val sizeBase = 1.5f + (i % 3) * 1.2f
-                    val twinkle = if (i % 2 == 0) starPulse else (1.4f - starPulse)
+
+                rainDropsList.forEach { drop ->
+                    val progress = (rainPhase * drop.speedMult + drop.yOffsetRatio) % 1.0f
+                    val startY = progress * (height + 100f) - 50f
+                    val startX = (drop.xRatio * width + progress * drop.slantPx) % width
+                    val endY = startY + drop.lengthDp.dp.toPx()
+                    val endX = startX + (drop.slantPx * 0.3f)
+
+                    drawLine(
+                        color = Color.White.copy(alpha = drop.alpha),
+                        start = Offset(startX, startY),
+                        end = Offset(endX, endY),
+                        strokeWidth = drop.strokeDp.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+
+                    if (progress > 0.85f && drop.speedMult > 1.8f) {
+                        val splashR = (progress - 0.85f) * 40.dp.toPx()
+                        drawCircle(
+                            color = Color.White.copy(alpha = (1.0f - progress) * 0.6f * drop.alpha),
+                            radius = splashR,
+                            center = Offset(endX, endY),
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                    }
+                }
+            }
+
+            if (lightningAlpha > 0.05f) {
+                // Flash overlay
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White.copy(alpha = lightningAlpha * 0.65f))
+                )
+
+                // Realistic Electric Lightning Bolt Path
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+
+                    val boltPath = Path().apply {
+                        moveTo(w * 0.55f, h * 0.02f)
+                        lineTo(w * 0.50f, h * 0.12f)
+                        lineTo(w * 0.58f, h * 0.20f)
+                        lineTo(w * 0.44f, h * 0.32f)
+                        lineTo(w * 0.52f, h * 0.42f)
+                        lineTo(w * 0.48f, h * 0.55f)
+                    }
+
+                    val branchPath = Path().apply {
+                        moveTo(w * 0.58f, h * 0.20f)
+                        lineTo(w * 0.66f, h * 0.28f)
+                        lineTo(w * 0.62f, h * 0.36f)
+                    }
+
+                    // Electric Glow Outer
+                    drawPath(
+                        path = boltPath,
+                        color = Color(0xFF818CF8).copy(alpha = lightningAlpha * 0.9f),
+                        style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                    drawPath(
+                        path = branchPath,
+                        color = Color(0xFF818CF8).copy(alpha = lightningAlpha * 0.7f),
+                        style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+
+                    // Crisp White Core
+                    drawPath(
+                        path = boltPath,
+                        color = Color.White.copy(alpha = lightningAlpha),
+                        style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                    drawPath(
+                        path = branchPath,
+                        color = Color.White.copy(alpha = lightningAlpha * 0.9f),
+                        style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                }
+            }
+        } else if (activeState == HomeUiState.NIGHT) {
+            // [SCENARIO: NIGHT MODE] Realistic Glowing Sparkling Stars & Dynamic Lunar Moon Phase
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val width = size.width
+                val height = size.height
+
+                // 1. Faint Cosmic Stardust / Nebula Glow
+                drawCircle(
+                    color = Color(0xFF1E1B4B).copy(alpha = 0.45f),
+                    radius = width * 0.7f,
+                    center = Offset(width * 0.3f, height * 0.2f)
+                )
+
+                // 2. Dynamic Realistic Lunar Moon
+                val moonX = width * 0.80f
+                val moonY = height * 0.12f
+                val moonPhase = calculateMoonPhase()
+
+                if (moonPhase < 0.06 || moonPhase > 0.94) {
+                    // New Moon / Dark Moon Disk
                     drawCircle(
-                        color = Color.White.copy(alpha = 0.55f * twinkle),
-                        radius = sizeBase.dp.toPx(),
+                        color = Color(0xFF0F172A),
+                        radius = 18.dp.toPx(),
+                        center = Offset(moonX, moonY)
+                    )
+                    drawCircle(
+                        color = Color(0xFF64748B).copy(alpha = 0.6f),
+                        radius = 18.dp.toPx(),
+                        center = Offset(moonX, moonY),
+                        style = Stroke(width = 1.5.dp.toPx())
+                    )
+                } else if (moonPhase in 0.44..0.56) {
+                    // Full Moon with Outer Aura Glow
+                    drawCircle(
+                        color = Color(0xFF93C5FD).copy(alpha = 0.35f),
+                        radius = 32.dp.toPx(),
+                        center = Offset(moonX, moonY)
+                    )
+                    drawCircle(
+                        color = Color(0xFFFFFBEB),
+                        radius = 18.dp.toPx(),
+                        center = Offset(moonX, moonY)
+                    )
+                } else {
+                    // Crescent / Half / Gibbous Phase
+                    drawCircle(
+                        color = Color(0xFF93C5FD).copy(alpha = 0.25f),
+                        radius = 28.dp.toPx(),
+                        center = Offset(moonX, moonY)
+                    )
+                    drawCircle(
+                        color = Color(0xFFE2E8F0),
+                        radius = 18.dp.toPx(),
+                        center = Offset(moonX, moonY)
+                    )
+                    val shadowX = if (moonPhase < 0.5) (moonX - 8.dp.toPx()) else (moonX + 8.dp.toPx())
+                    val shadowRad = if (moonPhase in 0.20..0.30 || moonPhase in 0.70..0.80) 18.dp.toPx() else 15.dp.toPx()
+                    drawCircle(
+                        color = Color(0xFF0F172A).copy(alpha = 0.95f),
+                        radius = shadowRad,
+                        center = Offset(shadowX, moonY - 2.dp.toPx())
+                    )
+                }
+
+                // 3. Realistic Glowing Stars with 4-Point Sparkle Cross Rays
+                for (i in 0 until 50) {
+                    val x = (i * 137 + 29) % width
+                    val y = (i * 89 + 17) % (height * 0.60f)
+                    val baseRadius = 1.2f + (i % 3) * 0.8f
+                    val twinkle = if (i % 2 == 0) starPulse else (1.4f - starPulse)
+
+                    // Major Sparkling Stars with 4-point cross shine
+                    if (i % 4 == 0) {
+                        val rayLen = (6.dp.toPx() + (i % 3) * 4.dp.toPx()) * twinkle
+                        val rayColor = Color.White.copy(alpha = 0.70f * twinkle)
+
+                        // Outer Glow
+                        drawCircle(
+                            color = Color(0xFF93C5FD).copy(alpha = 0.25f * twinkle),
+                            radius = baseRadius * 3.5f.dp.toPx(),
+                            center = Offset(x, y)
+                        )
+                        // Horizontal Ray
+                        drawLine(
+                            color = rayColor,
+                            start = Offset(x - rayLen, y),
+                            end = Offset(x + rayLen, y),
+                            strokeWidth = 1.0.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                        // Vertical Ray
+                        drawLine(
+                            color = rayColor,
+                            start = Offset(x, y - rayLen),
+                            end = Offset(x, y + rayLen),
+                            strokeWidth = 1.0.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                    }
+
+                    // Star Crisp Center Core
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.85f * twinkle),
+                        radius = baseRadius.dp.toPx(),
                         center = Offset(x, y)
                     )
                 }
             }
-        }
-
-        // [SCENARIO 3: STORMY_RAIN_MODE] Falling rain particle effect & background lightning flashes
-        if (activeState == HomeUiState.STORMY_RAIN) {
+        } else {
+            // [SCENARIO: DAYTIME CLEAR MODES (Morning, Noon, Twilight)]
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val width = size.width
                 val height = size.height
-                for (i in 0 until 45) {
-                    val startX = (i * 73) % width
-                    val speedMultiplier = 1.2f + (i % 3) * 0.4f
-                    val startY = ((rainPhase * height * speedMultiplier) + (i * 97)) % height
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.28f),
-                        start = Offset(startX, startY),
-                        end = Offset(startX + 6f, startY + 28f),
-                        strokeWidth = 1.5.dp.toPx()
-                    )
-                }
-            }
 
-            if (lightningAlpha > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.White.copy(alpha = lightningAlpha))
-                )
+                when {
+                    // MORNING (6 AM - 12 PM): Distant Flying Birds
+                    currentHour in 6..11 -> {
+                        val flapAngle = wingFlapProgress * 2.0 * Math.PI
+                        val flapOffset = Math.sin(flapAngle).toFloat()
+
+                        val birdOffsets = listOf(
+                            Triple(0.00f, 0.10f, 0.85f),
+                            Triple(0.06f, 0.08f, 0.70f),
+                            Triple(0.12f, 0.13f, 0.75f),
+                            Triple(0.18f, 0.09f, 0.60f),
+                            Triple(0.24f, 0.15f, 0.80f),
+                            Triple(0.30f, 0.12f, 0.65f)
+                        )
+
+                        birdOffsets.forEach { (xOffset, yRatio, scale) ->
+                            val rawX = (skyProgress + xOffset) % 1.0f
+                            val bx = rawX * (width + 120.dp.toPx()) - 60.dp.toPx()
+                            val by = height * yRatio + (Math.sin(rawX * Math.PI * 2.0).toFloat() * 12.dp.toPx())
+
+                            val wingSpan = 14.dp.toPx() * scale
+                            val wingH = (4.dp.toPx() + flapOffset * 3.dp.toPx()) * scale
+                            val birdAlpha = 0.75f
+
+                            val birdPath = Path().apply {
+                                moveTo(bx - wingSpan, by + wingH)
+                                quadraticTo(bx - wingSpan * 0.4f, by - wingH, bx, by)
+                                quadraticTo(bx + wingSpan * 0.4f, by - wingH, bx + wingSpan, by + wingH)
+                            }
+
+                            drawPath(
+                                path = birdPath,
+                                color = Color.White.copy(alpha = birdAlpha),
+                                style = Stroke(width = 1.8.dp.toPx() * scale, cap = StrokeCap.Round)
+                            )
+                        }
+                    }
+
+                    // NOON / AFTERNOON (12 PM - 4 PM): Big Floating White Clouds
+                    currentHour in 12..15 -> {
+                        val clouds = listOf(
+                            Triple(0.00f, 0.08f, 1.25f),
+                            Triple(0.35f, 0.16f, 0.95f),
+                            Triple(0.68f, 0.07f, 1.40f),
+                            Triple(0.85f, 0.22f, 0.80f)
+                        )
+
+                        clouds.forEach { (xOffset, yRatio, scale) ->
+                            val rawX = (skyProgress * 0.7f + xOffset) % 1.0f
+                            val cx = rawX * (width + 250.dp.toPx()) - 125.dp.toPx()
+                            val cy = height * yRatio
+
+                            val r1 = 28.dp.toPx() * scale
+                            val r2 = 22.dp.toPx() * scale
+                            val r3 = 18.dp.toPx() * scale
+                            val cloudColor = Color.White.copy(alpha = 0.55f)
+
+                            drawRoundRect(
+                                color = cloudColor,
+                                topLeft = Offset(cx - r1 * 1.5f, cy - r3 * 0.4f),
+                                size = Size(r1 * 3.0f, r3 * 1.7f),
+                                cornerRadius = CornerRadius(r3, r3)
+                            )
+                            drawCircle(cloudColor, radius = r1, center = Offset(cx, cy - r1 * 0.35f))
+                            drawCircle(cloudColor, radius = r2, center = Offset(cx - r1 * 0.75f, cy - r2 * 0.15f))
+                            drawCircle(cloudColor, radius = r3, center = Offset(cx + r1 * 0.75f, cy - r3 * 0.10f))
+                        }
+                    }
+
+                    // TWILIGHT / GODHULI (4 PM - 6:30 PM): Evening Sunset Ambiance
+                    currentHour in 16..18 -> {
+                        val duskColor = Color(0xFFFED7AA).copy(alpha = 0.22f)
+                        val horizonGlow = Color(0xFFFDBA74).copy(alpha = 0.35f)
+
+                        drawCircle(
+                            color = horizonGlow,
+                            radius = width * 0.8f,
+                            center = Offset(width * 0.5f, height * 0.45f)
+                        )
+
+                        val duskClouds = listOf(
+                            Triple(0.10f, 0.12f, 1.10f),
+                            Triple(0.55f, 0.20f, 0.85f)
+                        )
+                        duskClouds.forEach { (xOffset, yRatio, scale) ->
+                            val rawX = (skyProgress * 0.4f + xOffset) % 1.0f
+                            val cx = rawX * (width + 200.dp.toPx()) - 100.dp.toPx()
+                            val cy = height * yRatio
+                            val r1 = 24.dp.toPx() * scale
+                            val r2 = 18.dp.toPx() * scale
+
+                            drawCircle(duskColor, radius = r1, center = Offset(cx, cy))
+                            drawCircle(duskColor, radius = r2, center = Offset(cx - r1 * 0.6f, cy))
+                            drawCircle(duskColor, radius = r2, center = Offset(cx + r1 * 0.6f, cy))
+                        }
+                    }
+
+                    // Fallback for DAY preview mode
+                    else -> {
+                        val flapAngle = wingFlapProgress * 2.0 * Math.PI
+                        val flapOffset = Math.sin(flapAngle).toFloat()
+                        val bx = ((skyProgress) % 1.0f) * (width + 100.dp.toPx()) - 50.dp.toPx()
+                        val by = height * 0.12f
+                        val wingSpan = 14.dp.toPx()
+                        val wingH = 4.dp.toPx() + flapOffset * 3.dp.toPx()
+
+                        val birdPath = Path().apply {
+                            moveTo(bx - wingSpan, by + wingH)
+                            quadraticTo(bx - wingSpan * 0.4f, by - wingH, bx, by)
+                            quadraticTo(bx + wingSpan * 0.4f, by - wingH, bx + wingSpan, by + wingH)
+                        }
+
+                        drawPath(
+                            path = birdPath,
+                            color = Color.White.copy(alpha = 0.70f),
+                            style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
+                        )
+                    }
+                }
             }
         }
 
