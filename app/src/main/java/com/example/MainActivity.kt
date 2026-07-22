@@ -10693,6 +10693,17 @@ fun DashboardHomeScreen(
         label = "starPulse"
     )
 
+    val sunGlowTransition = rememberInfiniteTransition(label = "sun_twinkle")
+    val sunGlowPulse by sunGlowTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1300, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "sunGlowPulse"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -10898,123 +10909,242 @@ fun DashboardHomeScreen(
                 val width = size.width
                 val height = size.height
 
+                // 1. TOP HEADER VECTOR ARTWORK: GLOWING SUN + VIBRANT RAINBOW + FLUFFY CLOUDS (Exact image match)
+                val sunX = width * 0.72f
+                val sunY = height * 0.085f
+                val sunRadius = 28.dp.toPx()
+
+                // Sun Outer Pulsating Glow Aura
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFFDE047).copy(alpha = 0.70f * sunGlowPulse),
+                            Color(0xFFF97316).copy(alpha = 0.38f * sunGlowPulse),
+                            Color.Transparent
+                        ),
+                        center = Offset(sunX, sunY),
+                        radius = sunRadius * 2.8f * sunGlowPulse
+                    ),
+                    center = Offset(sunX, sunY),
+                    radius = sunRadius * 2.8f * sunGlowPulse
+                )
+
+                // Sun Spiky Starburst Rays (14 dramatic triangular rays)
+                val rayCount = 14
+                val innerRayR = sunRadius * 0.92f
+                val outerRayR = sunRadius * (1.50f + 0.22f * sunGlowPulse)
+                for (r in 0 until rayCount) {
+                    val angle = (r * (360f / rayCount) + (sunGlowPulse * 12f)) * (Math.PI / 180.0)
+                    val angleLeft = angle - (8.5f * Math.PI / 180.0)
+                    val angleRight = angle + (8.5f * Math.PI / 180.0)
+
+                    val rayPath = Path().apply {
+                        moveTo(
+                            (sunX + Math.cos(angle) * outerRayR).toFloat(),
+                            (sunY + Math.sin(angle) * outerRayR).toFloat()
+                        )
+                        lineTo(
+                            (sunX + Math.cos(angleLeft) * innerRayR).toFloat(),
+                            (sunY + Math.sin(angleLeft) * innerRayR).toFloat()
+                        )
+                        lineTo(
+                            (sunX + Math.cos(angleRight) * innerRayR).toFloat(),
+                            (sunY + Math.sin(angleRight) * innerRayR).toFloat()
+                        )
+                        close()
+                    }
+                    drawPath(
+                        path = rayPath,
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFFFFEA00), Color(0xFFFF6D00)),
+                            center = Offset(sunX, sunY),
+                            radius = outerRayR
+                        )
+                    )
+                }
+
+                // Sun Core Sphere (Bright yellow to warm orange gradient)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFFFF500), Color(0xFFFFAB00), Color(0xFFFF5500)),
+                        center = Offset(sunX - sunRadius * 0.25f, sunY - sunRadius * 0.25f),
+                        radius = sunRadius * 1.35f
+                    ),
+                    center = Offset(sunX, sunY),
+                    radius = sunRadius
+                )
+
+                // Sun Glossy Highlight Spot
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.88f),
+                    radius = sunRadius * 0.24f,
+                    center = Offset(sunX - sunRadius * 0.35f, sunY - sunRadius * 0.35f)
+                )
+
+                // 2. ARCHING VIBRANT MULTI-COLOR RAINBOW
+                val rainbowStart = Offset(width * 0.14f, height * 0.17f)
+                val rainbowEnd = Offset(width * 0.84f, height * 0.17f)
+                val rainbowControlY = height * 0.012f
+
+                val bandColors = listOf(
+                    Color(0xFFDC2626), // Deep Red
+                    Color(0xFFEA580C), // Orange
+                    Color(0xFFFACC15), // Yellow
+                    Color(0xFF16A34A), // Green
+                    Color(0xFF0284C7), // Cyan Blue
+                    Color(0xFF9333EA)  // Purple Violet
+                )
+
+                val bandStrokeWidth = 4.0.dp.toPx()
+
+                bandColors.forEachIndexed { index, color ->
+                    val offset = index * bandStrokeWidth * 0.95f
+                    val bandPath = Path().apply {
+                        moveTo(rainbowStart.x, rainbowStart.y - offset * 0.25f)
+                        quadraticTo(
+                            width * 0.49f,
+                            rainbowControlY - offset,
+                            rainbowEnd.x,
+                            rainbowEnd.y - offset * 0.25f
+                        )
+                    }
+                    drawPath(
+                        path = bandPath,
+                        color = color.copy(alpha = 0.95f),
+                        style = Stroke(width = bandStrokeWidth, cap = StrokeCap.Round)
+                    )
+                }
+
+                // 3. FLUFFY WHITE CLOUDS AT RAINBOW BASES (Left & Right)
+                val cloudBases = listOf(
+                    Offset(width * 0.14f, height * 0.17f) to 1.15f,
+                    Offset(width * 0.84f, height * 0.17f) to 1.25f
+                )
+
+                cloudBases.forEach { (pos, scale) ->
+                    val cx = pos.x
+                    val cy = pos.y
+                    val r1 = 23.dp.toPx() * scale
+                    val r2 = 18.dp.toPx() * scale
+                    val r3 = 14.dp.toPx() * scale
+
+                    // Soft Cyan Base Shadow
+                    drawRoundRect(
+                        color = Color(0xFF38BDF8).copy(alpha = 0.85f),
+                        topLeft = Offset(cx - r1 * 1.4f, cy - r3 * 0.1f),
+                        size = Size(r1 * 2.8f, r3 * 1.8f),
+                        cornerRadius = CornerRadius(r3, r3)
+                    )
+                    // Fluffy Glossy White Clouds
+                    drawRoundRect(
+                        color = Color.White,
+                        topLeft = Offset(cx - r1 * 1.3f, cy - r3 * 0.35f),
+                        size = Size(r1 * 2.6f, r3 * 1.6f),
+                        cornerRadius = CornerRadius(r3, r3)
+                    )
+                    drawCircle(Color.White, radius = r1, center = Offset(cx, cy - r1 * 0.35f))
+                    drawCircle(Color.White, radius = r2, center = Offset(cx - r1 * 0.65f, cy - r2 * 0.20f))
+                    drawCircle(Color.White, radius = r3, center = Offset(cx + r1 * 0.65f, cy - r3 * 0.15f))
+                }
+
+                // 4. Time-of-day dynamic ambient accent
                 when {
-                    // MORNING (6 AM - 12 PM): Distant Flying Birds
-                    currentHour in 6..11 -> {
+                    currentHour in 6..11 -> { // MORNING (সকাল 6 AM - 12 PM): Birds flying across the sky
                         val flapAngle = wingFlapProgress * 2.0 * Math.PI
                         val flapOffset = Math.sin(flapAngle).toFloat()
-
                         val birdOffsets = listOf(
                             Triple(0.00f, 0.10f, 0.85f),
-                            Triple(0.06f, 0.08f, 0.70f),
-                            Triple(0.12f, 0.13f, 0.75f),
-                            Triple(0.18f, 0.09f, 0.60f),
-                            Triple(0.24f, 0.15f, 0.80f),
-                            Triple(0.30f, 0.12f, 0.65f)
+                            Triple(0.07f, 0.08f, 0.65f),
+                            Triple(0.14f, 0.13f, 0.75f),
+                            Triple(0.22f, 0.09f, 0.55f),
+                            Triple(0.29f, 0.14f, 0.80f)
                         )
-
                         birdOffsets.forEach { (xOffset, yRatio, scale) ->
                             val rawX = (skyProgress + xOffset) % 1.0f
                             val bx = rawX * (width + 120.dp.toPx()) - 60.dp.toPx()
-                            val by = height * yRatio + (Math.sin(rawX * Math.PI * 2.0).toFloat() * 12.dp.toPx())
-
-                            val wingSpan = 14.dp.toPx() * scale
-                            val wingH = (4.dp.toPx() + flapOffset * 3.dp.toPx()) * scale
-                            val birdAlpha = 0.75f
-
+                            val by = height * yRatio
+                            val wingSpan = 13.dp.toPx() * scale
+                            val wingH = (3.5.dp.toPx() + flapOffset * 2.8.dp.toPx()) * scale
                             val birdPath = Path().apply {
                                 moveTo(bx - wingSpan, by + wingH)
                                 quadraticTo(bx - wingSpan * 0.4f, by - wingH, bx, by)
                                 quadraticTo(bx + wingSpan * 0.4f, by - wingH, bx + wingSpan, by + wingH)
                             }
-
                             drawPath(
                                 path = birdPath,
-                                color = Color.White.copy(alpha = birdAlpha),
+                                color = Color.White.copy(alpha = 0.80f),
                                 style = Stroke(width = 1.8.dp.toPx() * scale, cap = StrokeCap.Round)
                             )
                         }
                     }
-
-                    // NOON / AFTERNOON (12 PM - 4 PM): Big Floating White Clouds
-                    currentHour in 12..15 -> {
+                    currentHour in 12..15 -> { // AFTERNOON (দুপুর 12 PM - 4 PM): Scattered Floating Clouds drifting across sky
                         val clouds = listOf(
-                            Triple(0.00f, 0.08f, 1.25f),
-                            Triple(0.35f, 0.16f, 0.95f),
-                            Triple(0.68f, 0.07f, 1.40f),
-                            Triple(0.85f, 0.22f, 0.80f)
+                            Triple(0.00f, 0.08f, 1.10f),
+                            Triple(0.30f, 0.15f, 0.85f),
+                            Triple(0.58f, 0.06f, 1.25f),
+                            Triple(0.82f, 0.18f, 0.75f)
                         )
 
                         clouds.forEach { (xOffset, yRatio, scale) ->
-                            val rawX = (skyProgress * 0.7f + xOffset) % 1.0f
-                            val cx = rawX * (width + 250.dp.toPx()) - 125.dp.toPx()
+                            val rawX = (skyProgress * 0.6f + xOffset) % 1.0f
+                            val cx = rawX * (width + 220.dp.toPx()) - 110.dp.toPx()
                             val cy = height * yRatio
 
-                            val r1 = 28.dp.toPx() * scale
-                            val r2 = 22.dp.toPx() * scale
-                            val r3 = 18.dp.toPx() * scale
-                            val cloudColor = Color.White.copy(alpha = 0.55f)
+                            val r1 = 22.dp.toPx() * scale
+                            val r2 = 17.dp.toPx() * scale
+                            val r3 = 13.dp.toPx() * scale
 
+                            // Soft Blue Base Contour
                             drawRoundRect(
-                                color = cloudColor,
-                                topLeft = Offset(cx - r1 * 1.5f, cy - r3 * 0.4f),
-                                size = Size(r1 * 3.0f, r3 * 1.7f),
+                                color = Color(0xFF38BDF8).copy(alpha = 0.40f),
+                                topLeft = Offset(cx - r1 * 1.35f, cy - r3 * 0.2f),
+                                size = Size(r1 * 2.7f, r3 * 1.7f),
                                 cornerRadius = CornerRadius(r3, r3)
                             )
-                            drawCircle(cloudColor, radius = r1, center = Offset(cx, cy - r1 * 0.35f))
-                            drawCircle(cloudColor, radius = r2, center = Offset(cx - r1 * 0.75f, cy - r2 * 0.15f))
-                            drawCircle(cloudColor, radius = r3, center = Offset(cx + r1 * 0.75f, cy - r3 * 0.10f))
+                            // Fluffy Cute White Cloud Body
+                            drawRoundRect(
+                                color = Color.White.copy(alpha = 0.92f),
+                                topLeft = Offset(cx - r1 * 1.25f, cy - r3 * 0.35f),
+                                size = Size(r1 * 2.5f, r3 * 1.5f),
+                                cornerRadius = CornerRadius(r3, r3)
+                            )
+                            drawCircle(Color.White.copy(alpha = 0.95f), radius = r1, center = Offset(cx, cy - r1 * 0.35f))
+                            drawCircle(Color.White.copy(alpha = 0.95f), radius = r2, center = Offset(cx - r1 * 0.65f, cy - r2 * 0.20f))
+                            drawCircle(Color.White.copy(alpha = 0.95f), radius = r3, center = Offset(cx + r1 * 0.65f, cy - r3 * 0.15f))
+
+                            // Cute Pink Blush Accents on larger clouds
+                            if (scale > 1.0f) {
+                                drawCircle(Color(0xFFF472B6).copy(alpha = 0.50f), radius = 3.dp.toPx(), center = Offset(cx - r1 * 0.45f, cy + 2.dp.toPx()))
+                                drawCircle(Color(0xFFF472B6).copy(alpha = 0.50f), radius = 3.dp.toPx(), center = Offset(cx + r1 * 0.45f, cy + 2.dp.toPx()))
+                            }
                         }
                     }
-
-                    // TWILIGHT / GODHULI (4 PM - 6:30 PM): Evening Sunset Ambiance
-                    currentHour in 16..18 -> {
-                        val duskColor = Color(0xFFFED7AA).copy(alpha = 0.22f)
-                        val horizonGlow = Color(0xFFFDBA74).copy(alpha = 0.35f)
-
+                    currentHour in 16..18 -> { // TWILIGHT (বিকাল 4 PM - 6:30 PM): Sunset Horizon Glow + Evening Clouds
+                        val horizonGlow = Color(0xFFFDBA74).copy(alpha = 0.30f)
                         drawCircle(
                             color = horizonGlow,
-                            radius = width * 0.8f,
+                            radius = width * 0.80f,
                             center = Offset(width * 0.5f, height * 0.45f)
                         )
-
-                        val duskClouds = listOf(
-                            Triple(0.10f, 0.12f, 1.10f),
-                            Triple(0.55f, 0.20f, 0.85f)
+                    }
+                    else -> { // DEFAULT / FALLBACK DAYTIME: Scattered Floating Clouds
+                        val clouds = listOf(
+                            Triple(0.00f, 0.08f, 1.00f),
+                            Triple(0.40f, 0.14f, 0.80f),
+                            Triple(0.72f, 0.07f, 1.15f)
                         )
-                        duskClouds.forEach { (xOffset, yRatio, scale) ->
-                            val rawX = (skyProgress * 0.4f + xOffset) % 1.0f
+                        clouds.forEach { (xOffset, yRatio, scale) ->
+                            val rawX = (skyProgress * 0.5f + xOffset) % 1.0f
                             val cx = rawX * (width + 200.dp.toPx()) - 100.dp.toPx()
                             val cy = height * yRatio
-                            val r1 = 24.dp.toPx() * scale
-                            val r2 = 18.dp.toPx() * scale
 
-                            drawCircle(duskColor, radius = r1, center = Offset(cx, cy))
-                            drawCircle(duskColor, radius = r2, center = Offset(cx - r1 * 0.6f, cy))
-                            drawCircle(duskColor, radius = r2, center = Offset(cx + r1 * 0.6f, cy))
+                            val r1 = 20.dp.toPx() * scale
+                            val r2 = 15.dp.toPx() * scale
+
+                            drawCircle(Color.White.copy(alpha = 0.85f), radius = r1, center = Offset(cx, cy))
+                            drawCircle(Color.White.copy(alpha = 0.85f), radius = r2, center = Offset(cx - r1 * 0.6f, cy))
+                            drawCircle(Color.White.copy(alpha = 0.85f), radius = r2, center = Offset(cx + r1 * 0.6f, cy))
                         }
-                    }
-
-                    // Fallback for DAY preview mode
-                    else -> {
-                        val flapAngle = wingFlapProgress * 2.0 * Math.PI
-                        val flapOffset = Math.sin(flapAngle).toFloat()
-                        val bx = ((skyProgress) % 1.0f) * (width + 100.dp.toPx()) - 50.dp.toPx()
-                        val by = height * 0.12f
-                        val wingSpan = 14.dp.toPx()
-                        val wingH = 4.dp.toPx() + flapOffset * 3.dp.toPx()
-
-                        val birdPath = Path().apply {
-                            moveTo(bx - wingSpan, by + wingH)
-                            quadraticTo(bx - wingSpan * 0.4f, by - wingH, bx, by)
-                            quadraticTo(bx + wingSpan * 0.4f, by - wingH, bx + wingSpan, by + wingH)
-                        }
-
-                        drawPath(
-                            path = birdPath,
-                            color = Color.White.copy(alpha = 0.70f),
-                            style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
-                        )
                     }
                 }
             }
