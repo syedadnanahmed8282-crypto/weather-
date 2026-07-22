@@ -675,6 +675,162 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         fusedClientRef = null
     }
 
+    val bdLocationPresets = mapOf(
+        "ঢাকা" to Pair(23.8103, 90.4125),
+        "চট্টগ্রাম" to Pair(22.3569, 91.7832),
+        "কুমিল্লা" to Pair(23.4682, 91.1782),
+        "সিলেট" to Pair(24.8949, 91.8687),
+        "রাজশাহী" to Pair(24.3636, 88.6241),
+        "খুলনা" to Pair(22.8456, 89.5403),
+        "বরিশাল" to Pair(22.7010, 90.3535),
+        "রংপুর" to Pair(25.7439, 89.2752),
+        "ময়মনসিংহ" to Pair(24.7471, 90.4203),
+        "কক্সবাজার" to Pair(21.4272, 91.9701),
+        "বগুড়া" to Pair(24.8481, 89.3730),
+        "যশোর" to Pair(23.1664, 89.2081),
+        "দিনাজপুর" to Pair(25.6217, 88.6354),
+        "টাঙ্গাইল" to Pair(24.2513, 89.9167),
+        "কুষ্টিয়া" to Pair(23.9015, 89.1206),
+        "গাজীপুর" to Pair(23.9999, 90.4203),
+        "নারায়ণগঞ্জ" to Pair(23.6238, 90.5000),
+        "নরসিংদী" to Pair(23.9229, 90.7177),
+        "ফরিদপুর" to Pair(23.6061, 89.8406),
+        "ফেনী" to Pair(23.0159, 91.3976),
+        "ব্রাহ্মণবাড়িয়া" to Pair(23.9571, 91.1119),
+        "চাঁদপুর" to Pair(23.2321, 90.6631),
+        "নোয়াখালী" to Pair(22.8724, 91.0973),
+        "পাবনা" to Pair(24.0064, 89.2384),
+        "বাহাদ্দারহাট, চট্টগ্রাম" to Pair(22.3686, 91.8422),
+        "বাহাদ্দারহাট" to Pair(22.3686, 91.8422),
+        "জিইসি, চট্টগ্রাম" to Pair(22.3588, 91.8215),
+        "জিইসি" to Pair(22.3588, 91.8215),
+        "আগ্রাবাদ, চট্টগ্রাম" to Pair(22.3275, 91.8118),
+        "ধানমন্ডি, ঢাকা" to Pair(23.7461, 90.3742),
+        "গুলশান, ঢাকা" to Pair(23.7925, 90.4078),
+        "উত্তরা, ঢাকা" to Pair(23.8759, 90.3795),
+        "মিরপুর, ঢাকা" to Pair(23.8223, 90.3654),
+        "Dhaka" to Pair(23.8103, 90.4125),
+        "Chittagong" to Pair(22.3569, 91.7832),
+        "Chattogram" to Pair(22.3569, 91.7832),
+        "Cumilla" to Pair(23.4682, 91.1782),
+        "Comilla" to Pair(23.4682, 91.1782),
+        "Sylhet" to Pair(24.8949, 91.8687),
+        "Rajshahi" to Pair(24.3636, 88.6241),
+        "Khulna" to Pair(22.8456, 89.5403),
+        "Barisal" to Pair(22.7010, 90.3535),
+        "Barishal" to Pair(22.7010, 90.3535),
+        "Rangpur" to Pair(25.7439, 89.2752),
+        "Mymensingh" to Pair(24.7471, 90.4203),
+        "Bahaddarhat" to Pair(22.3686, 91.8422)
+    )
+
+    fun hasSavedManualLocation(): Boolean {
+        return prefs.contains("SAVED_LAT") && prefs.contains("SAVED_LON")
+    }
+
+    fun getSavedManualLocation(): Triple<String, Double, Double>? {
+        val lat = prefs.getString("SAVED_LAT", null)?.toDoubleOrNull()
+        val lon = prefs.getString("SAVED_LON", null)?.toDoubleOrNull()
+        val name = prefs.getString("SAVED_LOCATION_NAME", "ঢাকা") ?: "ঢাকা"
+        return if (lat != null && lon != null) Triple(name, lat, lon) else null
+    }
+
+    fun saveManualLocation(placeName: String, lat: Double, lon: Double) {
+        val formattedName = if (placeName.contains("বাংলাদেশ")) placeName else "$placeName, বাংলাদেশ"
+        prefs.edit()
+            .putString("SAVED_LOCATION_NAME", placeName)
+            .putString("SAVED_LAT", lat.toString())
+            .putString("SAVED_LON", lon.toString())
+            .apply()
+
+        liveLocationName.value = formattedName
+        fetchWeather(lat, lon, cityFallback = placeName)
+    }
+
+    fun clearSavedManualLocationAndUseGps(contextOverride: Context? = null) {
+        prefs.edit()
+            .remove("SAVED_LOCATION_NAME")
+            .remove("SAVED_LAT")
+            .remove("SAVED_LON")
+            .apply()
+
+        startLocationTracking(contextOverride)
+    }
+
+    fun searchAndSelectLocation(
+        query: String,
+        contextOverride: Context,
+        onComplete: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cleanQuery = query.trim()
+            if (cleanQuery.isBlank()) {
+                withContext(Dispatchers.Main) {
+                    onComplete(false, "দয়া করে সঠিক স্থান লিখুন")
+                }
+                return@launch
+            }
+
+            val preset = bdLocationPresets.entries.firstOrNull {
+                it.key.equals(cleanQuery, ignoreCase = true) ||
+                it.key.lowercase().contains(cleanQuery.lowercase()) ||
+                cleanQuery.lowercase().contains(it.key.lowercase())
+            }
+
+            if (preset != null) {
+                val name = preset.key
+                val coords = preset.value
+                withContext(Dispatchers.Main) {
+                    saveManualLocation(name, coords.first, coords.second)
+                    onComplete(true, name)
+                }
+                return@launch
+            }
+
+            try {
+                var lat = Double.NaN
+                var lon = Double.NaN
+                var resolvedName = cleanQuery
+
+                val geocoder = android.location.Geocoder(contextOverride, java.util.Locale("bn"))
+                val addresses = geocoder.getFromLocationName(cleanQuery, 1)
+                if (!addresses.isNullOrEmpty()) {
+                    val addr = addresses[0]
+                    lat = addr.latitude
+                    lon = addr.longitude
+                    val city = addr.subAdminArea ?: addr.locality ?: addr.adminArea ?: cleanQuery
+                    resolvedName = city
+                } else {
+                    val enGeocoder = android.location.Geocoder(contextOverride, java.util.Locale.ENGLISH)
+                    val enAddresses = enGeocoder.getFromLocationName(cleanQuery, 1)
+                    if (!enAddresses.isNullOrEmpty()) {
+                        val addr = enAddresses[0]
+                        lat = addr.latitude
+                        lon = addr.longitude
+                        val city = addr.subAdminArea ?: addr.locality ?: addr.adminArea ?: cleanQuery
+                        resolvedName = city
+                    }
+                }
+
+                if (!lat.isNaN() && !lon.isNaN()) {
+                    withContext(Dispatchers.Main) {
+                        saveManualLocation(resolvedName, lat, lon)
+                        onComplete(true, resolvedName)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        onComplete(false, "'$cleanQuery' অবস্থান খুঁজে পাওয়া যায়নি! আবার চেষ্টা করুন।")
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    onComplete(false, "অবস্থান খুঁজতে সমস্যা হয়েছে। স্পেলিং বা ইন্টারনেট কানেকশন চেক করুন।")
+                }
+            }
+        }
+    }
+
     fun fetchWeather(latitude: Double, longitude: Double, cityFallback: String? = null, contextOverride: Context? = null) {
         val useCtx = contextOverride ?: context
         viewModelScope.launch(Dispatchers.IO) {
@@ -10041,6 +10197,7 @@ fun ImageStyleWeatherDashboard(
     forecastCodes: List<Int>,
     currentTemp: String = "",
     isFetching: Boolean,
+    onLocationClick: () -> Unit = {},
     onRefresh: () -> Unit,
     onCardClick: () -> Unit
 ) {
@@ -10133,6 +10290,7 @@ fun ImageStyleWeatherDashboard(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
                             .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                            .clickable { onLocationClick() }
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Icon(
@@ -10499,6 +10657,332 @@ fun ImageStyleWeatherDashboard(
 }
 
 @Composable
+fun LocationSelectionDialog(
+    currentLocation: String,
+    onDismiss: () -> Unit,
+    onSelectPreset: (name: String, lat: Double, lon: Double) -> Unit,
+    onSearchSubmit: (query: String) -> Unit,
+    onResetToGps: () -> Unit,
+    isSearching: Boolean
+) {
+    var searchQuery by remember { mutableStateOf("") }
+
+    val districtPresets = remember {
+        listOf(
+            "ঢাকা" to Pair(23.8103, 90.4125),
+            "চট্টগ্রাম" to Pair(22.3569, 91.7832),
+            "কুমিল্লা" to Pair(23.4682, 91.1782),
+            "সিলেট" to Pair(24.8949, 91.8687),
+            "রাজশাহী" to Pair(24.3636, 88.6241),
+            "খুলনা" to Pair(22.8456, 89.5403),
+            "বরিশাল" to Pair(22.7010, 90.3535),
+            "রংপুর" to Pair(25.7439, 89.2752),
+            "ময়মনসিংহ" to Pair(24.7471, 90.4203),
+            "কক্সবাজার" to Pair(21.4272, 91.9701),
+            "বগুড়া" to Pair(24.8481, 89.3730),
+            "নোয়াখালী" to Pair(22.8724, 91.0973),
+            "ফেনী" to Pair(23.0159, 91.3976),
+            "যশোর" to Pair(23.1664, 89.2081),
+            "দিনাজপুর" to Pair(25.6217, 88.6354),
+            "টাঙ্গাইল" to Pair(24.2513, 89.9167),
+            "কুষ্টিয়া" to Pair(23.9015, 89.1206),
+            "বাহাদ্দারহাট, চট্টগ্রাম" to Pair(22.3686, 91.8422)
+        )
+    }
+
+    val searchSuggestions = remember(searchQuery) {
+        if (searchQuery.isBlank()) {
+            emptyList()
+        } else {
+            val q = searchQuery.trim().lowercase()
+            districtPresets.filter {
+                it.first.lowercase().contains(q)
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight(),
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF0F172A),
+            border = BorderStroke(1.2.dp, Color(0xFF3B82F6).copy(alpha = 0.4f)),
+            shadowElevation = 16.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Header Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color(0xFFEF4444).copy(alpha = 0.15f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = "Location",
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "স্থান নির্বাচন করুন",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "বর্তমান: ${formatShortLocation(currentLocation)}",
+                                fontSize = 12.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color(0xFF94A3B8)
+                        )
+                    }
+                }
+
+                Divider(color = Color.White.copy(alpha = 0.1f))
+
+                // Search Box
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = {
+                        Text(
+                            text = "খুঁজুন (যেমন: বাহাদ্দারহাট / কুমিল্লা / ঢাকা)...",
+                            fontSize = 12.5.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = Color(0xFF3B82F6)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear",
+                                    tint = Color(0xFF94A3B8)
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
+                        if (searchQuery.isNotBlank()) {
+                            onSearchSubmit(searchQuery.trim())
+                        }
+                    }),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF3B82F6),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                        focusedContainerColor = Color(0xFF1E293B),
+                        unfocusedContainerColor = Color(0xFF1E293B),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+
+                // Search Submit Button
+                if (searchQuery.isNotBlank()) {
+                    Button(
+                        onClick = { onSearchSubmit(searchQuery.trim()) },
+                        enabled = !isSearching,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2563EB),
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (isSearching) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "'${searchQuery.trim()}' খুঁজুন ও সেট করুন",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Local suggestions
+                if (searchSuggestions.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF1E293B), RoundedCornerShape(12.dp))
+                            .padding(vertical = 4.dp)
+                    ) {
+                        searchSuggestions.take(5).forEach { (name, coords) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onSelectPreset(name, coords.first, coords.second)
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Place,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = name,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Quick District Chips Header
+                Text(
+                    text = "দ্রুত জেলা নির্বাচন করুন:",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF94A3B8)
+                )
+
+                // Quick Selection Chips Row
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(districtPresets) { (name, coords) ->
+                        val isSelected = currentLocation.contains(name) || name.contains(currentLocation)
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { onSelectPreset(name, coords.first, coords.second) },
+                            label = {
+                                Text(
+                                    text = name,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Place,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF2563EB),
+                                selectedLabelColor = Color.White,
+                                containerColor = Color(0xFF1E293B),
+                                labelColor = Color(0xFFCBD5E1)
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isSelected,
+                                borderColor = Color.White.copy(alpha = 0.2f),
+                                selectedBorderColor = Color(0xFF60A5FA)
+                            ),
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                    }
+                }
+
+                Divider(color = Color.White.copy(alpha = 0.1f))
+
+                // GPS Button
+                OutlinedButton(
+                    onClick = onResetToGps,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.6f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color(0xFF34D399)
+                    )
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MyLocation,
+                            contentDescription = "GPS",
+                            tint = Color(0xFF34D399),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "লাইভ GPS অবস্থান ব্যবহার করুন",
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF34D399)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun DashboardHomeScreen(
     entries: List<DailyEntry>,
     wageRate: Double,
@@ -10547,25 +11031,35 @@ fun DashboardHomeScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.ACCESS_FINE_LOCATION
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        val coarseGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    var showLocationSelectionDialog by remember { mutableStateOf(false) }
+    var isSearchingLocation by remember { mutableStateOf(false) }
 
-        if (fineGranted || coarseGranted) {
-            viewModel.startLocationTracking(context)
+    LaunchedEffect(Unit) {
+        if (viewModel.hasSavedManualLocation()) {
+            val saved = viewModel.getSavedManualLocation()
+            if (saved != null) {
+                viewModel.fetchWeather(saved.second, saved.third, cityFallback = saved.first, contextOverride = context)
+            }
         } else {
-            locationPermissionsLauncher.launch(
-                arrayOf(
-                    android.Manifest.permission.ACCESS_FINE_LOCATION,
-                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+            val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val coarseGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            if (fineGranted || coarseGranted) {
+                viewModel.startLocationTracking(context)
+            } else {
+                locationPermissionsLauncher.launch(
+                    arrayOf(
+                        android.Manifest.permission.ACCESS_FINE_LOCATION,
+                        android.Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -11292,26 +11786,37 @@ fun DashboardHomeScreen(
                 forecastCodes = liveForecastCodesVal,
                 currentTemp = liveTemperatureVal,
                 isFetching = isFetchingWeatherVal,
+                onLocationClick = {
+                    showLocationSelectionDialog = true
+                },
                 onRefresh = {
-                    val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-                        context,
-                        android.Manifest.permission.ACCESS_FINE_LOCATION
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                    val coarseGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-                        context,
-                        android.Manifest.permission.ACCESS_COARSE_LOCATION
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-                    if (fineGranted || coarseGranted) {
-                        viewModel.startLocationTracking(context)
-                        Toast.makeText(context, "লাইভ অবস্থান ও আবহাওয়া আপডেট করা হচ্ছে...", Toast.LENGTH_SHORT).show()
+                    if (viewModel.hasSavedManualLocation()) {
+                        val saved = viewModel.getSavedManualLocation()
+                        if (saved != null) {
+                            viewModel.fetchWeather(saved.second, saved.third, cityFallback = saved.first, contextOverride = context)
+                            Toast.makeText(context, "${saved.first} এর আবহাওয়া আপডেট করা হচ্ছে...", Toast.LENGTH_SHORT).show()
+                        }
                     } else {
-                        locationPermissionsLauncher.launch(
-                            arrayOf(
-                                android.Manifest.permission.ACCESS_FINE_LOCATION,
-                                android.Manifest.permission.ACCESS_COARSE_LOCATION
+                        val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                            context,
+                            android.Manifest.permission.ACCESS_FINE_LOCATION
+                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        val coarseGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                            context,
+                            android.Manifest.permission.ACCESS_COARSE_LOCATION
+                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                        if (fineGranted || coarseGranted) {
+                            viewModel.startLocationTracking(context)
+                            Toast.makeText(context, "লাইভ অবস্থান ও আবহাওয়া আপডেট করা হচ্ছে...", Toast.LENGTH_SHORT).show()
+                        } else {
+                            locationPermissionsLauncher.launch(
+                                arrayOf(
+                                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                )
                             )
-                        )
+                        }
                     }
                 },
                 onCardClick = {
@@ -11487,6 +11992,36 @@ fun DashboardHomeScreen(
                     }
                 }
             }
+        }
+
+        if (showLocationSelectionDialog) {
+            LocationSelectionDialog(
+                currentLocation = liveLocationNameVal,
+                onDismiss = { showLocationSelectionDialog = false },
+                onSelectPreset = { name, lat, lon ->
+                    viewModel.saveManualLocation(name, lat, lon)
+                    Toast.makeText(context, "স্থান পরিবর্তন করা হয়েছে: $name", Toast.LENGTH_SHORT).show()
+                    showLocationSelectionDialog = false
+                },
+                onSearchSubmit = { query ->
+                    isSearchingLocation = true
+                    viewModel.searchAndSelectLocation(query, context) { success, resultName ->
+                        isSearchingLocation = false
+                        if (success) {
+                            Toast.makeText(context, "স্থান নির্বাচন সফল: $resultName", Toast.LENGTH_SHORT).show()
+                            showLocationSelectionDialog = false
+                        } else {
+                            Toast.makeText(context, resultName, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                onResetToGps = {
+                    viewModel.clearSavedManualLocationAndUseGps(context)
+                    Toast.makeText(context, "লাইভ GPS অবস্থান সক্রিয় করা হয়েছে", Toast.LENGTH_SHORT).show()
+                    showLocationSelectionDialog = false
+                },
+                isSearching = isSearchingLocation
+            )
         }
     }
 }
