@@ -724,6 +724,21 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         "Bahaddarhat" to Pair(22.3686, 91.8422)
     )
 
+    fun buildDetailedAddress(address: android.location.Address?, fallback: String? = null): String {
+        if (address == null) return fallback?.trim() ?: "আমার অবস্থান"
+        val area = address.subLocality ?: address.featureName ?: ""
+        val thanaOrCity = address.locality ?: address.subAdminArea ?: ""
+        val district = address.adminArea ?: ""
+
+        val fullLocationName = listOf(area, thanaOrCity, district)
+            .map { it.trim() }
+            .filter { it.isNotBlank() && !it.equals("Unnamed Road", ignoreCase = true) }
+            .distinct()
+            .joinToString(", ")
+
+        return if (fullLocationName.isNotBlank()) fullLocationName else (fallback?.trim() ?: "আমার অবস্থান")
+    }
+
     fun hasSavedManualLocation(): Boolean {
         return prefs.contains("SAVED_LAT") && prefs.contains("SAVED_LON")
     }
@@ -731,25 +746,28 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
     fun getSavedManualLocation(): Triple<String, Double, Double>? {
         val lat = prefs.getString("SAVED_LAT", null)?.toDoubleOrNull()
         val lon = prefs.getString("SAVED_LON", null)?.toDoubleOrNull()
-        val name = prefs.getString("SAVED_LOCATION_NAME", "ঢাকা") ?: "ঢাকা"
+        val name = prefs.getString("SAVED_LOCATION_NAME", null)
+            ?: prefs.getString("saved_location_name", "ঢাকা")
+            ?: "ঢাকা"
         return if (lat != null && lon != null) Triple(name, lat, lon) else null
     }
 
     fun saveManualLocation(placeName: String, lat: Double, lon: Double) {
-        val formattedName = if (placeName.contains("বাংলাদেশ")) placeName else "$placeName, বাংলাদেশ"
         prefs.edit()
             .putString("SAVED_LOCATION_NAME", placeName)
+            .putString("saved_location_name", placeName)
             .putString("SAVED_LAT", lat.toString())
             .putString("SAVED_LON", lon.toString())
             .apply()
 
-        liveLocationName.value = formattedName
+        liveLocationName.value = placeName
         fetchWeather(lat, lon, cityFallback = placeName)
     }
 
     fun clearSavedManualLocationAndUseGps(contextOverride: Context? = null) {
         prefs.edit()
             .remove("SAVED_LOCATION_NAME")
+            .remove("saved_location_name")
             .remove("SAVED_LAT")
             .remove("SAVED_LON")
             .apply()
@@ -771,6 +789,10 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                 return@launch
             }
 
+            var lat = Double.NaN
+            var lon = Double.NaN
+            var resolvedName = cleanQuery
+
             val preset = bdLocationPresets.entries.firstOrNull {
                 it.key.equals(cleanQuery, ignoreCase = true) ||
                 it.key.lowercase().contains(cleanQuery.lowercase()) ||
@@ -778,54 +800,42 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
             }
 
             if (preset != null) {
-                val name = preset.key
-                val coords = preset.value
-                withContext(Dispatchers.Main) {
-                    saveManualLocation(name, coords.first, coords.second)
-                    onComplete(true, name)
-                }
-                return@launch
+                lat = preset.value.first
+                lon = preset.value.second
+                resolvedName = preset.key
             }
 
             try {
-                var lat = Double.NaN
-                var lon = Double.NaN
-                var resolvedName = cleanQuery
-
                 val geocoder = android.location.Geocoder(contextOverride, java.util.Locale("bn"))
-                val addresses = geocoder.getFromLocationName(cleanQuery, 1)
+                var addresses = geocoder.getFromLocationName(cleanQuery, 1)
+                if (addresses.isNullOrEmpty()) {
+                    val enGeocoder = android.location.Geocoder(contextOverride, java.util.Locale.ENGLISH)
+                    addresses = enGeocoder.getFromLocationName(cleanQuery, 1)
+                }
+
                 if (!addresses.isNullOrEmpty()) {
                     val addr = addresses[0]
                     lat = addr.latitude
                     lon = addr.longitude
-                    val city = addr.subAdminArea ?: addr.locality ?: addr.adminArea ?: cleanQuery
-                    resolvedName = city
-                } else {
-                    val enGeocoder = android.location.Geocoder(contextOverride, java.util.Locale.ENGLISH)
-                    val enAddresses = enGeocoder.getFromLocationName(cleanQuery, 1)
-                    if (!enAddresses.isNullOrEmpty()) {
-                        val addr = enAddresses[0]
-                        lat = addr.latitude
-                        lon = addr.longitude
-                        val city = addr.subAdminArea ?: addr.locality ?: addr.adminArea ?: cleanQuery
-                        resolvedName = city
-                    }
-                }
-
-                if (!lat.isNaN() && !lon.isNaN()) {
-                    withContext(Dispatchers.Main) {
-                        saveManualLocation(resolvedName, lat, lon)
-                        onComplete(true, resolvedName)
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        onComplete(false, "'$cleanQuery' অবস্থান খুঁজে পাওয়া যায়নি! আবার চেষ্টা করুন।")
+                    resolvedName = buildDetailedAddress(addr, cleanQuery)
+                } else if (preset != null) {
+                    val revAddresses = geocoder.getFromLocation(lat, lon, 1)
+                    if (!revAddresses.isNullOrEmpty()) {
+                        resolvedName = buildDetailedAddress(revAddresses[0], preset.key)
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+
+            if (!lat.isNaN() && !lon.isNaN()) {
                 withContext(Dispatchers.Main) {
-                    onComplete(false, "অবস্থান খুঁজতে সমস্যা হয়েছে। স্পেলিং বা ইন্টারনেট কানেকশন চেক করুন।")
+                    saveManualLocation(resolvedName, lat, lon)
+                    onComplete(true, resolvedName)
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    onComplete(false, "'$cleanQuery' অবস্থান খুঁজে পাওয়া যায়নি! আবার চেষ্টা করুন।")
                 }
             }
         }
@@ -836,32 +846,36 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         viewModelScope.launch(Dispatchers.IO) {
             isFetchingWeather.value = true
             try {
-                // Reverse geocode first to get location name in Bengali/English
-                var cityName = "আমার অবস্থান"
+                // Reverse geocode first to get detailed location name
+                var cityName = cityFallback ?: "আমার অবস্থান"
                 try {
                     val geocoder = android.location.Geocoder(useCtx, java.util.Locale("bn"))
                     val addresses = geocoder.getFromLocation(latitude, longitude, 1)
                     if (!addresses.isNullOrEmpty()) {
                         val addr = addresses[0]
-                        val city = addr.subAdminArea ?: addr.locality ?: addr.adminArea ?: cityFallback
-                        cityName = if (city != null) "$city, বাংলাদেশ" else "আমার অবস্থান"
+                        cityName = buildDetailedAddress(addr, cityFallback)
+                    } else if (!cityFallback.isNullOrBlank()) {
+                        cityName = cityFallback
                     } else {
-                        val fallback = cityFallback ?: getClosestBangladeshCity(latitude, longitude)
-                        cityName = "$fallback, বাংলাদেশ"
+                        cityName = getClosestBangladeshCity(latitude, longitude)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
-                    val fallback = cityFallback ?: getClosestBangladeshCity(latitude, longitude)
-                    cityName = "$fallback, বাংলাদেশ"
+                    if (!cityFallback.isNullOrBlank()) {
+                        cityName = cityFallback
+                    } else {
+                        cityName = getClosestBangladeshCity(latitude, longitude)
+                    }
                 }
 
-                // Translate city if matched
-                val baseCity = cityName.removeSuffix(", বাংলাদেশ").trim()
-                val translatedCity = cityTranslation[baseCity.lowercase(java.util.Locale.ROOT)]
-                if (translatedCity != null) {
-                    cityName = "$translatedCity, বাংলাদেশ"
-                }
                 liveLocationName.value = cityName
+
+                if (!hasSavedManualLocation()) {
+                    prefs.edit()
+                        .putString("SAVED_LOCATION_NAME", cityName)
+                        .putString("saved_location_name", cityName)
+                        .apply()
+                }
 
                 // AccuWeather Scraper via Jsoup (using coordinate query URL)
                 var accuSuccess = false
@@ -898,14 +912,7 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                                 liveWeatherCode.value = matchedCode
                             }
                             
-                            if (locEl != null && locEl.text().isNotBlank()) {
-                                val scrapedLoc = locEl.text().trim()
-                                val cleanLoc = scrapedLoc.split(",")[0].trim()
-                                val banglaLoc = cityTranslation[cleanLoc.lowercase(java.util.Locale.ROOT)] ?: cleanLoc
-                                if (banglaLoc.isNotBlank()) {
-                                    liveLocationName.value = "$banglaLoc, বাংলাদেশ"
-                                }
-                            }
+                            // Keep detailed Geocoded location name in liveLocationName
                             accuSuccess = true
                         }
                     }
@@ -10127,32 +10134,12 @@ fun getTempColor(tempStr: String): Color {
 }
 
 fun formatShortLocation(loc: String): String {
-    if (loc.isBlank()) return "Ctg"
-    var clean = loc.toEnglishDigits()
+    if (loc.isBlank()) return "আমার অবস্থান"
+    val clean = loc.toEnglishDigits()
         .replace(", Bangladesh", "", ignoreCase = true)
         .replace(", বাংলাদেশ", "", ignoreCase = true)
         .trim()
-    clean = clean
-        .replace("Chittagong", "Ctg", ignoreCase = true)
-        .replace("চট্টগ্রাম", "Ctg", ignoreCase = true)
-        .replace("Dhaka", "Dhaka", ignoreCase = true)
-        .replace("ঢাকা", "Dhaka", ignoreCase = true)
-        .replace("Sylhet", "Sylhet", ignoreCase = true)
-        .replace("সিলেট", "Sylhet", ignoreCase = true)
-        .replace("Rajshahi", "Rajshahi", ignoreCase = true)
-        .replace("রাজশাহী", "Rajshahi", ignoreCase = true)
-        .replace("Khulna", "Khulna", ignoreCase = true)
-        .replace("খুলনা", "Khulna", ignoreCase = true)
-        .replace("Barisal", "Barisal", ignoreCase = true)
-        .replace("বরিশাল", "Barisal", ignoreCase = true)
-        .replace("Rangpur", "Rangpur", ignoreCase = true)
-        .replace("রংপুর", "Rangpur", ignoreCase = true)
-        .replace("Mymensingh", "Mymensingh", ignoreCase = true)
-        .replace("ময়মনসিংহ", "Mymensingh", ignoreCase = true)
-        .replace("Comilla", "Cumilla", ignoreCase = true)
-        .replace("কুমিল্লা", "Cumilla", ignoreCase = true)
-    val parts = clean.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-    return if (parts.isNotEmpty()) parts.take(2).joinToString(", ") else "Ctg"
+    return if (clean.isNotBlank()) clean else "আমার অবস্থান"
 }
 
 fun String.toCleanEnglishWeatherMetric(): String {
@@ -10284,7 +10271,10 @@ fun ImageStyleWeatherDashboard(
                 }
 
                 // Right: Location/Refresh Pill and Temperature beneath
-                Column(horizontalAlignment = Alignment.End) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    modifier = Modifier.weight(1f, fill = false).padding(start = 6.dp)
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -10301,9 +10291,12 @@ fun ImageStyleWeatherDashboard(
                         )
                         Text(
                             text = shortLoc,
-                            fontSize = 12.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         IconButton(
                             onClick = onRefresh,
