@@ -680,7 +680,7 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
         viewModelScope.launch(Dispatchers.IO) {
             isFetchingWeather.value = true
             try {
-                // Reverse geocode first to update location name in Bengali
+                // Reverse geocode first to get location name in Bengali/English
                 var cityName = "আমার অবস্থান"
                 try {
                     val geocoder = android.location.Geocoder(useCtx, java.util.Locale("bn"))
@@ -699,7 +699,7 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                     cityName = "$fallback, বাংলাদেশ"
                 }
 
-                // Apply case-insensitive English-to-Bengali translation map for cities if returned in English
+                // Translate city if matched
                 val baseCity = cityName.removeSuffix(", বাংলাদেশ").trim()
                 val translatedCity = cityTranslation[baseCity.lowercase(java.util.Locale.ROOT)]
                 if (translatedCity != null) {
@@ -707,7 +707,57 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                 }
                 liveLocationName.value = cityName
 
-                // Fetch weather from Open-Meteo with current, hourly, and daily metrics
+                // AccuWeather Scraper via Jsoup (using coordinate query URL)
+                var accuSuccess = false
+                try {
+                    val accuUrl = "https://www.accuweather.com/en/search-locations?query=$latitude,$longitude"
+                    val doc: org.jsoup.nodes.Document = org.jsoup.Jsoup.connect(accuUrl)
+                        .userAgent("Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36")
+                        .timeout(10000)
+                        .followRedirects(true)
+                        .get()
+
+                    // Parse current temperature element from AccuWeather page
+                    val tempEl = doc.select(".temp, .display-temp, .cur-con-weather-card__temp, .temp-container .temp").firstOrNull()
+                    val condEl = doc.select(".phrase, .cond, .cur-con-weather-card__phrase, .phrase-container .phrase").firstOrNull()
+                    val locEl = doc.select(".header-loc, .location-name, .subnav-pagination div").firstOrNull()
+
+                    if (tempEl != null) {
+                        val scrapedTempText = tempEl.text().trim() // e.g. "32° C" or "32°"
+                        val tempDigits = scrapedTempText.replace("[^0-9]".toRegex(), "")
+                        if (tempDigits.isNotEmpty()) {
+                            val tempVal = tempDigits.toIntOrNull() ?: 30
+                            liveTemperature.value = "${tempVal.toBangla()}°সে."
+                            
+                            if (condEl != null && condEl.text().isNotBlank()) {
+                                val phrase = condEl.text().trim().lowercase()
+                                val matchedCode = when {
+                                    phrase.contains("thunder") || phrase.contains("storm") -> 95
+                                    phrase.contains("rain") || phrase.contains("shower") || phrase.contains("drizzle") -> 61
+                                    phrase.contains("cloud") || phrase.contains("overcast") -> 3
+                                    phrase.contains("fog") || phrase.contains("haze") -> 45
+                                    phrase.contains("sun") || phrase.contains("clear") -> 0
+                                    else -> 1
+                                }
+                                liveWeatherCode.value = matchedCode
+                            }
+                            
+                            if (locEl != null && locEl.text().isNotBlank()) {
+                                val scrapedLoc = locEl.text().trim()
+                                val cleanLoc = scrapedLoc.split(",")[0].trim()
+                                val banglaLoc = cityTranslation[cleanLoc.lowercase(java.util.Locale.ROOT)] ?: cleanLoc
+                                if (banglaLoc.isNotBlank()) {
+                                    liveLocationName.value = "$banglaLoc, বাংলাদেশ"
+                                }
+                            }
+                            accuSuccess = true
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                // Open-Meteo API enrichment / fallback for full hourly & daily metrics
                 val url = "https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,surface_pressure,wind_speed_10m,is_day&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto"
                 val client = OkHttpClient()
                 val request = Request.Builder().url(url).build()
@@ -726,9 +776,10 @@ class MainViewModel(private val repository: DailyEntryRepository, private val co
                                 val windSpeed = current.optDouble("wind_speed_10m", 4.0)
                                 val pressure = current.optDouble("surface_pressure", 1006.0)
 
-                                val tempString = "${temp.toInt().toBangla()}°সে."
-                                liveTemperature.value = tempString
-                                liveWeatherCode.value = code
+                                if (!accuSuccess) {
+                                    liveTemperature.value = "${temp.toInt().toBangla()}°সে."
+                                    liveWeatherCode.value = code
+                                }
                                 liveIsDay.value = isDay
                                 liveRealFeel.value = "${apparentTemp.toInt().toBangla()}°সে."
                                 liveHumidity.value = "${humidity.toBangla()}%"
