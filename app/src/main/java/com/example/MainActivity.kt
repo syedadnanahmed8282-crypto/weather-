@@ -10191,6 +10191,15 @@ data class CelestialState(
     val progress: Float
 )
 
+data class ReminderInfo(
+    val icon: ImageVector,
+    val title: String,
+    val message: String,
+    val bgColor: Color,
+    val borderColor: Color,
+    val isWarning: Boolean
+)
+
 fun calculateCelestialState(sunriseStr: String, sunsetStr: String): CelestialState {
     return try {
         val now = java.util.Calendar.getInstance()
@@ -10299,6 +10308,7 @@ fun ImageStyleWeatherDashboard(
     forecastCodes: List<Int>,
     currentTemp: String = "",
     isFetching: Boolean,
+    activeState: HomeUiState = HomeUiState.DAY,
     onLocationClick: () -> Unit = {},
     onRefresh: () -> Unit,
     onCardClick: () -> Unit
@@ -10324,8 +10334,11 @@ fun ImageStyleWeatherDashboard(
     }
 
     val liveDateStr = remember(currentTimeMillis) {
-        val sdf = java.text.SimpleDateFormat("EEE, d MMM yyyy", java.util.Locale.US)
-        sdf.format(java.util.Date(currentTimeMillis))
+        val sdfDay = java.text.SimpleDateFormat("EEEE", java.util.Locale("bn", "BD"))
+        val sdfDate = java.text.SimpleDateFormat("d MMMM, yyyy", java.util.Locale("bn", "BD"))
+        val dayBn = sdfDay.format(java.util.Date(currentTimeMillis))
+        val dateBn = sdfDate.format(java.util.Date(currentTimeMillis)).toBanglaDigits()
+        "$dayBn, $dateBn"
     }
 
     val tempColor = remember(currentTemp) {
@@ -10380,7 +10393,7 @@ fun ImageStyleWeatherDashboard(
                         text = liveDateStr,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color.White.copy(alpha = 0.82f),
+                        color = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.padding(start = 20.dp, top = 2.dp)
                     )
                 }
@@ -10457,24 +10470,123 @@ fun ImageStyleWeatherDashboard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Arc Curve Section (Wider Arc with Weather Metrics Framed Inside)
+            // Dynamic Time-of-Day & Rain Alert Banner (Right under Clock, Date & Day)
+            val reminderData = remember(currentTimeMillis, activeState) {
+                val cal = java.util.Calendar.getInstance()
+                val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                if (activeState == HomeUiState.STORMY_RAIN) {
+                    ReminderInfo(
+                        icon = Icons.Default.WaterDrop,
+                        title = "বৃষ্টির সতর্কতা 🌧️",
+                        message = "বাহিরে বর্ষণমুখর আবহাওয়া! বের হলে ছাতা সাথে রাখুন এবং নিরাপদে থাকুন। ☂️",
+                        bgColor = Color(0xFF0369A1).copy(alpha = 0.55f),
+                        borderColor = Color(0xFF38BDF8).copy(alpha = 0.85f),
+                        isWarning = true
+                    )
+                } else when (hour) {
+                    in 5..11 -> ReminderInfo(
+                        icon = Icons.Default.WbSunny,
+                        title = "সকালের রিমাইন্ডার 🌅",
+                        message = "শুভ সকাল! নতুন দিনের আয়-ব্যয়ের হিসাব সময়মতো লিখে রাখুন।",
+                        bgColor = Color(0xFFB45309).copy(alpha = 0.45f),
+                        borderColor = Color(0xFFFBBF24).copy(alpha = 0.80f),
+                        isWarning = false
+                    )
+                    in 12..16 -> ReminderInfo(
+                        icon = Icons.Default.LightMode,
+                        title = "দুপুরের রিমাইন্ডার ☀️",
+                        message = "শুভ দুপুর! দুপুরের খাবারের খরচ ও প্রয়োজনীয় কেনাকাটার হিসাব যোগ করুন।",
+                        bgColor = Color(0xFF0284C7).copy(alpha = 0.45f),
+                        borderColor = Color(0xFF38BDF8).copy(alpha = 0.80f),
+                        isWarning = false
+                    )
+                    in 17..19 -> ReminderInfo(
+                        icon = Icons.Default.NightsStay,
+                        title = "সংধ্যার রিমাইন্ডার 🌆",
+                        message = "শুভ সন্ধ্যা! সারাদিনের বেচা-কেনার হিসাবটি আরেকবার মিলিয়ে নিন।",
+                        bgColor = Color(0xFFC2410C).copy(alpha = 0.45f),
+                        borderColor = Color(0xFFFB923C).copy(alpha = 0.80f),
+                        isWarning = false
+                    )
+                    else -> ReminderInfo(
+                        icon = Icons.Default.Bedtime,
+                        title = "রাতের রিমাইন্ডার 🌙",
+                        message = "শুভ রাত্রি! আজকের দিনের মোট আয়-ব্যয়ের হিসাব সম্পন্ন করে নিশ্চিন্তে ঘুমাতে যান।",
+                        bgColor = Color(0xFF3730A3).copy(alpha = 0.50f),
+                        borderColor = Color(0xFF818CF8).copy(alpha = 0.80f),
+                        isWarning = false
+                    )
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = reminderData.bgColor,
+                border = BorderStroke(1.2.dp, reminderData.borderColor),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .background(
+                                if (reminderData.isWarning) Color(0xFF38BDF8).copy(alpha = 0.35f)
+                                else Color.White.copy(alpha = 0.20f),
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = reminderData.icon,
+                            contentDescription = reminderData.title,
+                            tint = Color.White,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = reminderData.title,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = reminderData.message,
+                            fontSize = 10.8.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.95f),
+                            lineHeight = 14.5.sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Arc Curve Section (Wider High Arc with Moon lifted higher up)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(125.dp)
+                    .height(150.dp)
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
 
                     val startX = w * 0.03f
-                    val startY = h * 0.85f
+                    val startY = h * 0.90f
                     val endX = w * 0.97f
-                    val endY = h * 0.85f
+                    val endY = h * 0.90f
                     val controlX = w * 0.5f
-                    val controlY = h * -0.20f // Wide parabola spanning across full screen
+                    val controlY = h * -0.65f // High parabola lifting moon higher up into sky
 
                     val arcPath = androidx.compose.ui.graphics.Path().apply {
                         moveTo(startX, startY)
@@ -11873,6 +11985,35 @@ fun DashboardHomeScreen(
                 val width = size.width
                 val height = size.height
 
+                // Glowing High Moon in the Upper Night Sky
+                val moonX = width * 0.82f
+                val moonY = height * 0.075f
+                val moonR = 22.dp.toPx()
+
+                // Multi-layered Moonlight Glow Aura
+                drawCircle(
+                    color = Color(0xFF93C5FD).copy(alpha = 0.20f * starPulse),
+                    radius = moonR * 2.8f,
+                    center = Offset(moonX, moonY)
+                )
+                drawCircle(
+                    color = Color(0xFFE2E8F0).copy(alpha = 0.35f * starPulse),
+                    radius = moonR * 1.6f,
+                    center = Offset(moonX, moonY)
+                )
+                // Base Golden Crescent Moon
+                drawCircle(
+                    color = Color(0xFFFEF08A),
+                    radius = moonR,
+                    center = Offset(moonX, moonY)
+                )
+                // Sky Shadow Overlay forming Crescent Shape
+                drawCircle(
+                    color = Color(0xFF0B1329).copy(alpha = 0.90f),
+                    radius = moonR * 0.92f,
+                    center = Offset(moonX - 8.dp.toPx(), moonY - 3.dp.toPx())
+                )
+
                 // Realistic Sparkling Stars Overlay with 4-Point Sparkle Cross Rays
                 for (i in 0 until 45) {
                     val x = (i * 137 + 29) % width
@@ -12253,6 +12394,7 @@ fun DashboardHomeScreen(
                 forecastCodes = liveForecastCodesVal,
                 currentTemp = liveTemperatureVal,
                 isFetching = isFetchingWeatherVal,
+                activeState = activeState,
                 onLocationClick = {
                     showLocationSelectionDialog = true
                 },
@@ -13128,10 +13270,24 @@ fun ProfileTabScreen(
     ) { uri ->
         if (uri != null) {
             val bitmap = try {
-                context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    android.graphics.BitmapFactory.decodeStream(inputStream)
+                val options = android.graphics.BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
                 }
-            } catch (e: Exception) {
+                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    android.graphics.BitmapFactory.decodeStream(inputStream, null, options)
+                }
+                var sampleSize = 1
+                val maxDim = 1000
+                while (options.outWidth / sampleSize > maxDim || options.outHeight / sampleSize > maxDim) {
+                    sampleSize *= 2
+                }
+                val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                }
+                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    android.graphics.BitmapFactory.decodeStream(inputStream, null, decodeOptions)
+                }
+            } catch (e: Throwable) {
                 e.printStackTrace()
                 null
             }
@@ -14632,7 +14788,8 @@ fun SmartManagerSplashScreen(onFinish: () -> Unit) {
 fun UserProfileAvatar(
     avatarIndex: Int,
     customUriString: String?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    alpha: Float = 0.82f
 ) {
     val context = LocalContext.current
     val avatarConfig = listOf(
@@ -14648,29 +14805,49 @@ fun UserProfileAvatar(
     if (!customUriString.isNullOrBlank()) {
         val bitmap = remember(customUriString) {
             try {
-                val uri = android.net.Uri.parse(customUriString)
-                context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    android.graphics.BitmapFactory.decodeStream(inputStream)?.asImageBitmap()
+                if (customUriString.startsWith("file://")) {
+                    val file = File(android.net.Uri.parse(customUriString).path ?: "")
+                    if (file.exists()) {
+                        android.graphics.BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                    } else null
+                } else if (customUriString.startsWith("/")) {
+                    val file = File(customUriString)
+                    if (file.exists()) {
+                        android.graphics.BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                    } else null
+                } else {
+                    val uri = android.net.Uri.parse(customUriString)
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        android.graphics.BitmapFactory.decodeStream(inputStream)?.asImageBitmap()
+                    }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 e.printStackTrace()
                 null
             }
         }
         if (bitmap != null) {
-            Image(
-                bitmap = bitmap,
-                contentDescription = "প্রোফাইল ছবি",
+            Box(
                 modifier = modifier
-                    .clip(CircleShape)
-                    .border(1.5.dp, Color(0xFFE2B93B), CircleShape),
-                contentScale = ContentScale.Crop
-            )
+                    .background(Color.White.copy(alpha = 0.15f), CircleShape)
+                    .border(1.5.dp, Color(0xFFE2B93B).copy(alpha = 0.85f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = "প্রোফাইল ছবি",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape),
+                    alpha = alpha,
+                    contentScale = ContentScale.Crop
+                )
+            }
         } else {
             // Fallback to default avatar if image cannot be loaded
             Box(
                 modifier = modifier
-                    .background(defaultColor.copy(alpha = 0.15f), CircleShape)
+                    .background(defaultColor.copy(alpha = 0.2f), CircleShape)
                     .border(1.5.dp, defaultColor, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
